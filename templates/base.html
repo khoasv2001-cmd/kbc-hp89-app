@@ -6,6 +6,7 @@
   <title>{% block title %}KBC-HP89{% endblock %}</title>
   <link rel="manifest" href="{{ url_for('pwa_manifest') }}">
   <meta name="theme-color" content="#c61c2d">
+  <link rel="icon" type="image/png" sizes="64x64" href="{{ url_for('static', filename='favicon.png') }}">
   <link rel="icon" type="image/png" sizes="192x192" href="{{ url_for('static', filename='icon-192.png') }}">
   <link rel="apple-touch-icon" href="{{ url_for('static', filename='icon-192.png') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
@@ -31,9 +32,9 @@
       text-decoration: none;
     }
     .topbar .brand img {
-      height: 44px; width: 44px; object-fit: contain;
-      border-radius: 8px; display: block;
-      box-shadow: 0 1px 4px rgba(0,0,0,.2);
+      height: 46px; width: 46px; object-fit: contain;
+      display: block;
+      filter: drop-shadow(0 1px 2px rgba(0,0,0,.3));
     }
     .topbar .brand-name { color: var(--kbc-gold); letter-spacing: .5px; }
     .topbar .spacer { flex: 1; }
