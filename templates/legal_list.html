@@ -1,0 +1,50 @@
+{% extends 'base.html' %}
+{% block title %}Pháp lý – KBC-HP89{% endblock %}
+{% block content %}
+<div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap">
+  <h1 style="margin:0">⚖️ Giấy tờ Pháp lý</h1>
+  <div style="flex:1"></div>
+  <a class="btn btn-primary" href="{{ url_for('legal_new') }}">+ Thêm giấy tờ</a>
+</div>
+
+{% macro render_tree(nodes) %}
+  <ul style="list-style:none; padding-left:18px">
+    {% for n in nodes %}
+    <li style="margin-bottom:6px">
+      <div style="display:flex; align-items:center; gap:6px">
+        <span style="font-size:18px">{% if n.children %}📁{% elif n.stored_name %}📄{% else %}📋{% endif %}</span>
+        <a href="{{ url_for('legal_view', nid=n.id) }}" style="font-weight:600">{{ n.title }}</a>
+        <span class="pill {{ LEGAL_STATUS_PILL[n.approval_status] }}">{{ LEGAL_STATUS_LABEL[n.approval_status] }}</span>
+        {% if n.stored_name %}
+          <a class="btn btn-sm btn-outline" href="{{ url_for('legal_download', nid=n.id) }}">⬇</a>
+          <a class="btn btn-sm btn-outline" target="_blank" href="{{ url_for('legal_preview', nid=n.id) }}">👁</a>
+        {% endif %}
+        {% if current_user.has_cap('approve_legal') and n.approval_status == 'pending' %}
+          <form method="post" action="{{ url_for('legal_approve', nid=n.id) }}" style="display:inline">
+            <button class="btn btn-sm btn-success">✓ Duyệt</button>
+          </form>
+          <form method="post" action="{{ url_for('legal_reject', nid=n.id) }}" style="display:inline; display:inline-flex; gap:4px">
+            <input type="text" name="approval_note" placeholder="Lý do" style="width:120px">
+            <button class="btn btn-sm btn-warning">✗ Từ chối</button>
+          </form>
+        {% endif %}
+        <a class="btn btn-sm btn-gold" href="{{ url_for('legal_edit', nid=n.id) }}">✏️</a>
+        <form method="post" action="{{ url_for('legal_delete', nid=n.id) }}" style="display:inline">
+          <button class="btn btn-sm btn-danger" onclick="return confirm('Xoá {{ n.title }}?')">🗑️</button>
+        </form>
+      </div>
+      {% if n.description %}<div style="font-size:13px; color:#666; padding-left:24px">{{ n.description }}</div>{% endif %}
+      {% if n.children %}{{ render_tree(n.children) }}{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+{% endmacro %}
+
+<div class="card">
+{% if tree %}
+  {{ render_tree(tree) }}
+{% else %}
+  <div style="padding:20px; text-align:center; color:#999">Chưa có giấy tờ pháp lý nào.</div>
+{% endif %}
+</div>
+{% endblock %}

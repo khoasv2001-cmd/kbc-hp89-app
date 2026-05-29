@@ -1,0 +1,145 @@
+{% extends 'base.html' %}
+{% block title %}{{ m.title }} – Truyền thông KBC-HP89{% endblock %}
+{% block content %}
+<div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap">
+  <h1 style="margin:0">📢 {{ m.title }}</h1>
+  <span class="pill {{ MEDIA_STATUS_PILL[m.status] }}" style="font-size:14px; padding:6px 14px">
+    {{ MEDIA_STATUS_LABEL[m.status] }}
+  </span>
+  <div style="flex:1"></div>
+  <a class="btn btn-secondary" href="{{ url_for('media_list') }}">← Danh sách</a>
+  {% if editable and m.status in ['draft','revision'] %}
+    <a class="btn btn-gold" href="{{ url_for('media_edit', mid=m.id) }}">✏️ Sửa</a>
+  {% endif %}
+  {% if current_user.is_admin or m.owner_id == current_user.id %}
+    <form method="post" action="{{ url_for('media_delete', mid=m.id) }}" style="display:inline">
+      <button class="btn btn-danger" onclick="return confirm('Xoá bài?')">🗑️</button>
+    </form>
+  {% endif %}
+</div>
+
+<!-- WORKFLOW ACTIONS -->
+<div class="card" style="padding:14px">
+  <h2>🔄 Trạng thái duyệt</h2>
+  <div style="display:flex; flex-wrap:wrap; gap:6px; align-items:center">
+    {% set steps = [('draft','Nháp HP89'),('pending','Chờ KBC duyệt'),('approved','KBC thống nhất'),('published','Đã đăng')] %}
+    {% set indexable = ['draft','pending','approved','published'] %}
+    {% if m.status == 'revision' %}
+      <span class="pill pill-red" style="padding:6px 12px">⚠️ KBC yêu cầu sửa</span>
+    {% else %}
+      {% set order_index = indexable.index(m.status) %}
+      {% for st, lbl in steps %}
+        {% set idx = loop.index0 %}
+        <span class="pill {% if idx <= order_index %}pill-green{% else %}pill-gray{% endif %}" style="padding:6px 12px">
+          {% if idx <= order_index %}✓{% else %}○{% endif %} {{ lbl }}
+        </span>
+        {% if not loop.last %}<span style="color:#aaa">→</span>{% endif %}
+      {% endfor %}
+    {% endif %}
+  </div>
+
+  <div style="margin-top:16px; display:flex; flex-wrap:wrap; gap:8px">
+    {% if m.status in ['draft','revision'] %}
+      {% if current_user.is_admin or m.owner_id == current_user.id %}
+        <form method="post" action="{{ url_for('media_submit', mid=m.id) }}" style="display:inline">
+          <button class="btn btn-primary" onclick="return confirm('Gửi bài này cho KBC duyệt?')">📤 Gửi KBC duyệt</button>
+        </form>
+      {% endif %}
+    {% elif m.status == 'pending' %}
+      {% if current_user.has_cap('approve_media') %}
+        <form method="post" action="{{ url_for('media_approve', mid=m.id) }}" style="display:inline">
+          <button class="btn btn-success" onclick="return confirm('KBC xác nhận thống nhất nội dung này?')">✅ Thống nhất nội dung</button>
+        </form>
+        <form method="post" action="{{ url_for('media_request_revision', mid=m.id) }}" style="display:flex; gap:6px; align-items:center">
+          <input type="text" name="revision_note" placeholder="Yêu cầu sửa..." style="width:260px" required>
+          <button class="btn btn-warning">↩ Yêu cầu sửa</button>
+        </form>
+      {% endif %}
+    {% elif m.status == 'approved' %}
+      {% if current_user.is_admin or m.owner_id == current_user.id %}
+        <form method="post" action="{{ url_for('media_publish', mid=m.id) }}" style="display:flex; gap:6px; align-items:center">
+          <input type="url" name="link" placeholder="Link bài đã đăng" style="width:260px">
+          <button class="btn btn-primary">📌 Đánh dấu đã đăng</button>
+        </form>
+      {% endif %}
+    {% endif %}
+  </div>
+
+  {% if m.revision_note and m.status == 'revision' %}
+    <div class="flash warning" style="margin-top:12px">
+      <b>⚠️ KBC yêu cầu sửa:</b> {{ m.revision_note }}
+    </div>
+  {% endif %}
+
+  <div style="margin-top:14px; font-size:13px; color:#666; line-height:1.8">
+    <div>📝 Tạo bởi <b>{{ m.owner_name or m.owner_user }}</b>
+      <span class="badge-org {% if m.owner_org=='KBC' %}badge-kbc{% else %}badge-hp89{% endif %}">{{ m.owner_org }}</span>
+      lúc {{ m.created_at|vndatetime }}</div>
+    {% if m.submitted_at %}<div>📤 Gửi KBC duyệt lúc {{ m.submitted_at|vndatetime }}</div>{% endif %}
+    {% if m.confirmed_at %}
+      <div>✅ KBC <b>{{ m.confirmer_name or '—' }}</b> thống nhất lúc {{ m.confirmed_at|vndatetime }}</div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- NỘI DUNG BÀI -->
+<div class="card">
+  <h2>📝 Nội dung</h2>
+  <div style="display:grid; grid-template-columns: 1fr 1fr; gap:8px 20px; margin-bottom:10px">
+    <div><b>Kênh:</b> {{ m.channel or '—' }}</div>
+    <div><b>Ngày dự kiến:</b> {{ m.planned_date|vndate }}</div>
+    {% if m.link %}<div style="grid-column:1/-1"><b>Link:</b> <a href="{{ m.link }}" target="_blank">{{ m.link }}</a></div>{% endif %}
+  </div>
+  <div style="background:#fff8e1; padding:12px; border-radius:6px; white-space:pre-wrap; line-height:1.6">{{ m.content }}</div>
+  {% if m.notes %}<div style="margin-top:10px"><b>Ghi chú nội bộ:</b> {{ m.notes }}</div>{% endif %}
+</div>
+
+<!-- FILE -->
+<div class="card">
+  <h2>📎 File đính kèm</h2>
+  {% if files %}
+  <ul>
+    {% for f in files %}
+    <li>
+      <a href="{{ url_for('media_file_download', fid=f.id) }}">📥 {{ f.original_name or f.stored_name }}</a>
+      {% if editable %}
+        <form method="post" action="{{ url_for('media_file_delete', fid=f.id) }}" style="display:inline">
+          <button class="btn btn-sm btn-danger">×</button>
+        </form>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+    <div style="color:#999">Không có file.</div>
+  {% endif %}
+</div>
+
+<!-- COMMENTS -->
+<div class="card" id="comments">
+  <h2>💬 Trao đổi</h2>
+  {% if comments %}
+    {% for cm in comments %}
+    <div style="border-left:3px solid #c61c2d; padding:6px 12px; margin-bottom:8px; background:#fffaf0">
+      <div style="font-size:12px; color:#6b4f1a">
+        <b>{{ cm.full_name or cm.username }}</b>
+        <span class="badge-org {% if cm.organization=='KBC' %}badge-kbc{% else %}badge-hp89{% endif %}">{{ cm.organization }}</span>
+        · {{ cm.created_at|vndatetime }}
+        {% if current_user.is_admin or cm.user_id == current_user.id %}
+          <form method="post" action="{{ url_for('delete_comment', cmt_id=cm.id) }}" style="display:inline">
+            <button class="btn btn-sm btn-danger" style="padding:1px 6px">×</button>
+          </form>
+        {% endif %}
+      </div>
+      <div style="margin-top:4px">{{ cm.content }}</div>
+    </div>
+    {% endfor %}
+  {% else %}<div style="color:#999">Chưa có trao đổi.</div>{% endif %}
+  {% if current_user.has_cap('comment') %}
+    <form method="post" action="{{ url_for('add_comment', rtype='media', rid=m.id) }}" style="margin-top:10px">
+      <textarea name="content" rows="2" placeholder="Nhập nhận xét..." required></textarea>
+      <button class="btn btn-primary btn-sm" style="margin-top:6px">Gửi</button>
+    </form>
+  {% endif %}
+</div>
+{% endblock %}

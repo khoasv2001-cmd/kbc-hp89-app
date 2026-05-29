@@ -1,0 +1,56 @@
+{% extends 'base.html' %}
+{% block title %}Đặt hàng – KBC-HP89{% endblock %}
+{% block content %}
+<div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap">
+  <h1 style="margin:0">📦 Danh sách đơn đặt hàng</h1>
+  <div style="flex:1"></div>
+  {% if current_user.has_cap('create_order') %}
+    <a class="btn btn-primary" href="{{ url_for('order_new') }}">+ Tạo đơn mới</a>
+  {% endif %}
+</div>
+
+<div class="card" style="display:flex; gap:6px; flex-wrap:wrap; padding:10px 14px">
+  <a class="btn btn-sm {% if not current_status %}btn-primary{% else %}btn-outline{% endif %}" href="{{ url_for('orders_list') }}">Tất cả</a>
+  {% for st in ORDER_WORKFLOW %}
+    <a class="btn btn-sm {% if current_status==st %}btn-primary{% else %}btn-outline{% endif %}" href="{{ url_for('orders_list', status=st) }}">{{ ORDER_WF_LABEL[st] }}</a>
+  {% endfor %}
+</div>
+
+<div class="card" style="padding:0">
+{% if orders %}
+<table>
+  <thead>
+    <tr>
+      <th>Mã ĐH</th>
+      <th>Ngày</th>
+      <th>Nơi nhận</th>
+      <th>Tổng cộng</th>
+      <th>Trạng thái</th>
+      <th>Người tạo</th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for o in orders %}
+    <tr>
+      <td><a href="{{ url_for('order_view', oid=o.id) }}"><b>{{ o.code or '#'~o.id }}</b></a></td>
+      <td>{{ o.order_date|vndate }}</td>
+      <td>{{ o.customer_name }}</td>
+      <td><b>{{ o.grand_total|money0 }}</b></td>
+      <td><span class="pill {{ ORDER_WF_PILL[o.workflow_status] }}">{{ ORDER_WF_LABEL[o.workflow_status] }}</span></td>
+      <td>
+        {{ o.owner_name or o.owner_user }}
+        <span class="badge-org {% if o.owner_org=='KBC' %}badge-kbc{% else %}badge-hp89{% endif %}">{{ o.owner_org }}</span>
+      </td>
+      <td>
+        <a class="btn btn-sm btn-outline" href="{{ url_for('order_view', oid=o.id) }}">Xem</a>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+  <div style="padding:30px; text-align:center; color:#666">Chưa có đơn nào.</div>
+{% endif %}
+</div>
+{% endblock %}

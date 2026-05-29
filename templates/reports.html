@@ -1,0 +1,22 @@
+{% extends 'base.html' %}
+{% block title %}Báo cáo – KBC-HP89{% endblock %}
+{% block content %}
+<h1>📥 Tải báo cáo</h1>
+
+<div class="card">
+  <h2>Báo cáo Excel</h2>
+  <p>Báo cáo lấy theo phạm vi quyền của bạn — bạn xem được hồ sơ nào thì xuất ra báo cáo đó.</p>
+  <div style="display:flex; flex-wrap:wrap; gap:10px; margin-top:14px">
+    <a class="btn btn-primary" href="{{ url_for('report_orders') }}">📦 Báo cáo Đơn hàng (.xlsx)</a>
+    <a class="btn btn-gold" href="{{ url_for('report_contracts') }}">📄 Báo cáo Hợp đồng (.xlsx)</a>
+    <a class="btn btn-outline" href="{{ url_for('report_media') }}">📢 Báo cáo Truyền thông (.xlsx)</a>
+  </div>
+</div>
+
+{% if current_user.is_admin %}
+<div class="card">
+  <h2>🔧 Quản trị (chỉ Admin)</h2>
+  <a class="btn btn-secondary" href="{{ url_for('admin_backup') }}">💾 Tải về toàn bộ DB + uploads (.zip)</a>
+</div>
+{% endif %}
+{% endblock %}

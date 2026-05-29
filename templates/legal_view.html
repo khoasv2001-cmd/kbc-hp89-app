@@ -1,0 +1,63 @@
+{% extends 'base.html' %}
+{% block title %}{{ node.title }} – Pháp lý KBC-HP89{% endblock %}
+{% block content %}
+<div style="font-size:13px; color:#666; margin-bottom:6px">
+  <a href="{{ url_for('legal_list') }}">⚖️ Pháp lý</a>
+  {% for cr in crumbs %}
+    / <a href="{{ url_for('legal_view', nid=cr.id) }}">{{ cr.title }}</a>
+  {% endfor %}
+</div>
+<div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap">
+  <h1 style="margin:0">⚖️ {{ node.title }}</h1>
+  <span class="pill {{ LEGAL_STATUS_PILL[node.approval_status] }}">{{ LEGAL_STATUS_LABEL[node.approval_status] }}</span>
+  <div style="flex:1"></div>
+  <a class="btn btn-gold" href="{{ url_for('legal_edit', nid=node.id) }}">✏️ Sửa</a>
+  <form method="post" action="{{ url_for('legal_delete', nid=node.id) }}" style="display:inline">
+    <button class="btn btn-danger" onclick="return confirm('Xoá mục này?')">🗑️</button>
+  </form>
+</div>
+
+<div class="card">
+  {% if node.description %}<p>{{ node.description }}</p>{% endif %}
+  {% if node.stored_name %}
+    <a class="btn btn-primary" href="{{ url_for('legal_download', nid=node.id) }}">📥 Tải file: {{ node.original_name }}</a>
+    <a class="btn btn-outline" target="_blank" href="{{ url_for('legal_preview', nid=node.id) }}">👁 Xem trước</a>
+  {% endif %}
+  <div style="margin-top:10px; font-size:13px; color:#666">
+    Người tạo: {{ node.creator_name or '—' }} · {{ node.created_at|vndatetime }}
+    {% if node.approver_name %}
+    <br>Người duyệt: {{ node.approver_name }} · {{ node.approved_at|vndatetime }}
+    {% if node.approval_note %}<br>Ghi chú duyệt: <i>{{ node.approval_note }}</i>{% endif %}
+    {% endif %}
+  </div>
+  {% if current_user.has_cap('approve_legal') and node.approval_status == 'pending' %}
+    <div style="margin-top:14px; display:flex; gap:6px; align-items:center">
+      <form method="post" action="{{ url_for('legal_approve', nid=node.id) }}" style="display:inline; display:flex; gap:6px">
+        <input type="text" name="approval_note" placeholder="Ghi chú duyệt (tuỳ chọn)" style="width:200px">
+        <button class="btn btn-success">✓ Duyệt</button>
+      </form>
+      <form method="post" action="{{ url_for('legal_reject', nid=node.id) }}" style="display:inline; display:flex; gap:6px">
+        <input type="text" name="approval_note" placeholder="Lý do từ chối" style="width:200px">
+        <button class="btn btn-warning">✗ Từ chối</button>
+      </form>
+    </div>
+  {% endif %}
+</div>
+
+{% if children %}
+<div class="card">
+  <h2>📁 Mục con</h2>
+  <ul>
+    {% for ch in children %}
+    <li>
+      <a href="{{ url_for('legal_view', nid=ch.id) }}">{{ ch.title }}</a>
+      <span class="pill {{ LEGAL_STATUS_PILL[ch.approval_status] }}">{{ LEGAL_STATUS_LABEL[ch.approval_status] }}</span>
+      {% if ch.description %}<small style="color:#666">— {{ ch.description }}</small>{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+<a class="btn btn-secondary" href="{{ url_for('legal_new') }}">+ Thêm mục con</a>
+{% endblock %}

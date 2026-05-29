@@ -1,0 +1,73 @@
+{% extends 'base.html' %}
+{% block title %}{% if post %}Sửa{% else %}Đăng{% endif %} bài truyền thông – KBC-HP89{% endblock %}
+{% block content %}
+<h1>📢 {% if post %}Sửa bài truyền thông{% else %}Đăng bài truyền thông mới{% endif %}</h1>
+
+{% if post and post.status == 'revision' and post.revision_note %}
+<div class="flash warning">
+  <b>⚠️ KBC yêu cầu chỉnh sửa:</b> {{ post.revision_note }}
+</div>
+{% endif %}
+
+<form method="post" enctype="multipart/form-data" class="card">
+  <div class="form-row full">
+    <div><label>Tiêu đề bài viết *</label>
+      <input type="text" name="title" required value="{{ post.title if post else '' }}">
+    </div>
+  </div>
+  <div class="form-row">
+    <div><label>Kênh đăng</label>
+      <select name="channel">
+        <option value="">— Chọn kênh —</option>
+        {% for ch in MEDIA_CHANNELS %}
+          <option value="{{ ch }}" {% if post and post.channel == ch %}selected{% endif %}>{{ ch }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div><label>Ngày dự kiến đăng</label>
+      <input type="date" name="planned_date" value="{{ post.planned_date if post else '' }}">
+    </div>
+  </div>
+  <div class="form-row full">
+    <div><label>Nội dung bài viết</label>
+      <textarea name="content" rows="10" placeholder="Soạn nội dung báo chí / truyền thông gửi KBC duyệt...">{{ post.content if post else '' }}</textarea>
+    </div>
+  </div>
+  <div class="form-row full">
+    <div><label>Link bài đã đăng (nếu có)</label>
+      <input type="url" name="link" value="{{ post.link if post else '' }}" placeholder="https://...">
+    </div>
+  </div>
+  <div class="form-row full">
+    <div><label>Ghi chú nội bộ</label>
+      <textarea name="notes" rows="2">{{ post.notes if post else '' }}</textarea>
+    </div>
+  </div>
+  <div class="form-row full">
+    <div><label>File đính kèm (ảnh, video, PDF, Word... có thể chọn nhiều)</label>
+      <input type="file" name="files" multiple>
+    </div>
+  </div>
+
+  {% if files %}
+  <div style="margin-bottom:14px">
+    <label>File hiện có:</label>
+    <ul>
+      {% for f in files %}
+      <li>
+        <a href="{{ url_for('media_file_download', fid=f.id) }}">{{ f.original_name or f.stored_name }}</a>
+        <form method="post" action="{{ url_for('media_file_delete', fid=f.id) }}" style="display:inline">
+          <button class="btn btn-sm btn-danger" onclick="return confirm('Xoá file?')">×</button>
+        </form>
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
+  <div style="display:flex; gap:8px">
+    <button class="btn btn-primary">💾 Lưu (Nháp)</button>
+    <a class="btn btn-secondary" href="{{ url_for('media_list') }}">Quay lại</a>
+  </div>
+</form>
+{% endblock %}

@@ -1,0 +1,105 @@
+{% extends 'base.html' %}
+{% block title %}{% if contract %}Sửa{% else %}Tạo{% endif %} hợp đồng – KBC-HP89{% endblock %}
+{% block content %}
+<h1>📄 {% if contract %}Sửa hợp đồng{% else %}Tạo hợp đồng / thỏa thuận{% endif %}</h1>
+
+<form method="post" enctype="multipart/form-data" class="card">
+  <h2>1. Thông tin hợp đồng</h2>
+  <div class="form-row">
+    <div><label>Mã HĐ</label>
+      <input type="text" name="code" value="{{ contract.code if contract else '' }}">
+    </div>
+    <div><label>Tên hợp đồng *</label>
+      <input type="text" name="title" required value="{{ contract.title if contract else '' }}">
+    </div>
+  </div>
+  <div class="form-row">
+    <div><label>Đối tác (KBC / HP89 / khác)</label>
+      <input type="text" name="partner" value="{{ contract.partner if contract else '' }}">
+    </div>
+    <div><label>MST đối tác</label>
+      <input type="text" name="supplier_tax" value="{{ contract.supplier_tax if contract else '' }}">
+    </div>
+  </div>
+  <div class="form-row">
+    <div><label>Người liên hệ</label>
+      <input type="text" name="contact_person" value="{{ contract.contact_person if contract else '' }}">
+    </div>
+    <div><label>SĐT liên hệ</label>
+      <input type="text" name="contact_phone" value="{{ contract.contact_phone if contract else '' }}">
+    </div>
+  </div>
+
+  <h2>2. Giá trị &amp; thời hạn</h2>
+  <div class="form-row">
+    <div><label>Tổng giá trị</label>
+      <input type="number" step="0.01" name="total_value" value="{{ contract.total_value if contract else 0 }}">
+    </div>
+    <div><label>Đã thanh toán</label>
+      <input type="number" step="0.01" name="paid_amount" value="{{ contract.paid_amount if contract else 0 }}">
+    </div>
+  </div>
+  <div class="form-row">
+    <div><label>Ngày ký HĐ</label>
+      <input type="date" name="contract_date" value="{{ contract.contract_date if contract else '' }}">
+    </div>
+    <div><label>Ngày hết hạn</label>
+      <input type="date" name="due_date" value="{{ contract.due_date if contract else '' }}">
+    </div>
+  </div>
+  <div class="form-row">
+    <div><label>Tiến độ (mô tả)</label>
+      <input type="text" name="progress" value="{{ contract.progress if contract else '' }}">
+    </div>
+    <div><label>% hoàn thành</label>
+      <input type="number" min="0" max="100" name="progress_percent" value="{{ contract.progress_percent if contract else 0 }}">
+    </div>
+  </div>
+  <div class="form-row full">
+    <div><label>Ghi chú</label>
+      <textarea name="notes" rows="3">{{ contract.notes if contract else '' }}</textarea>
+    </div>
+  </div>
+
+  <h2>3. Người nhận / Phối hợp</h2>
+  <div class="form-row full">
+    <div><label>Chọn người nhận (giữ Ctrl/Cmd để chọn nhiều)</label>
+      <select name="receiver_ids" multiple size="6">
+        {% for u in users %}
+          <option value="{{ u.id }}" {% if u.id in selected_receiver_ids %}selected{% endif %}>
+            {{ u.full_name or u.username }} ({{ u.organization }}){% if u.email %} - {{ u.email }}{% endif %}
+          </option>
+        {% endfor %}
+      </select>
+    </div>
+  </div>
+
+  <h2>4. File đính kèm</h2>
+  <div class="form-row">
+    <div><label>File hợp đồng {% if contract and contract.contract_file %}<span style="color:#2e7d32">(đã có)</span>{% endif %}</label>
+      <input type="file" name="contract_file">
+    </div>
+    <div><label>File biên bản bàn giao</label>
+      <input type="file" name="handover_file">
+    </div>
+  </div>
+  <div class="form-row">
+    <div><label>File phụ lục</label>
+      <input type="file" name="appendix_file">
+    </div>
+    <div><label>File hóa đơn VAT</label>
+      <input type="file" name="invoice_file">
+    </div>
+  </div>
+  <div class="form-row full">
+    <div><label>File khác</label>
+      <input type="file" name="other_file">
+    </div>
+  </div>
+
+  <div style="margin-top:20px; display:flex; gap:8px">
+    <button class="btn btn-primary">💾 Lưu hợp đồng</button>
+    <a class="btn btn-secondary" href="{{ url_for('contracts_list') }}">Quay lại</a>
+  </div>
+</form>
+{% endblock %}

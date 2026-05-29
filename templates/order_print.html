@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <title>Phiếu giao hàng – {{ o.code or '#'~o.id }}</title>
+  <style>
+    @page { size: A4; margin: 12mm; }
+    * { box-sizing: border-box; }
+    body { font-family: 'Times New Roman', serif; font-size: 13px; color: #000; margin: 0; padding: 10px; }
+    .header { display:flex; align-items:center; gap:12px; border-bottom:2px solid #c61c2d; padding-bottom:8px }
+    .header img { width:60px; height:60px; object-fit:contain; border-radius:8px }
+    .header h1 { margin:0; color:#c61c2d; font-size:22px; letter-spacing:1px }
+    .header .sub { font-size:12px; color:#555 }
+    h2 { text-align:center; font-size:18px; margin:12px 0 4px }
+    .row { display:flex; gap:20px; font-size:13px; margin:4px 0 }
+    .row > div { flex:1 }
+    table { width:100%; border-collapse: collapse; margin-top:6px }
+    table th, table td { border:1px solid #000; padding:4px 6px; font-size:12px }
+    table th { background:#f5e9d4; text-align:center }
+    .right { text-align:right }
+    .center { text-align:center }
+    .signers { display:grid; grid-template-columns: repeat(3, 1fr); gap:20px; margin-top:24px; text-align:center; font-size:12px }
+    .signers .role { font-style:italic; }
+    .signers .name { margin-top:60px; font-weight:700 }
+    .print-btn { background:#c61c2d; color:#fff; padding:8px 16px; border:0; border-radius:4px; cursor:pointer; margin:10px 0 }
+    @media print { .no-print { display:none } }
+  </style>
+</head>
+<body>
+  <div class="no-print" style="text-align:right">
+    <button class="print-btn" onclick="window.print()">🖨️ In phiếu</button>
+  </div>
+  <div class="header">
+    <img src="{{ url_for('static', filename='kbc-logo.png') }}">
+    <div>
+      <h1>KBC – HP89</h1>
+      <div class="sub">Liên kết KBC &amp; HP89</div>
+    </div>
+  </div>
+  <h2>PHIẾU GIAO HÀNG</h2>
+  <div class="center" style="font-size:12px">Số: {{ o.code or '#'~o.id }} – Ngày: {{ o.order_date|vndate }}</div>
+
+  <div class="row" style="margin-top:10px">
+    <div><b>Nơi nhận:</b> {{ o.customer_name }}</div>
+    <div><b>SĐT:</b> {{ o.customer_phone }}</div>
+  </div>
+  <div class="row">
+    <div><b>Địa chỉ:</b> {{ o.customer_address }}</div>
+  </div>
+  {% if o.invoice_company %}
+  <div class="row">
+    <div><b>Đơn vị xuất HĐ:</b> {{ o.invoice_company }} ({{ o.invoice_tax_code }})</div>
+  </div>
+  {% endif %}
+
+  <table>
+    <thead>
+      <tr>
+        <th style="width:30px">#</th>
+        <th>Sản phẩm</th>
+        <th style="width:50px">ĐVT</th>
+        <th style="width:60px">SL</th>
+        <th style="width:90px">Đơn giá</th>
+        <th style="width:100px">Thành tiền</th>
+        <th style="width:50px">CK%</th>
+        <th style="width:110px">Sau CK</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for it in items %}
+      <tr>
+        <td class="center">{{ loop.index }}</td>
+        <td>{{ it.product_name }}</td>
+        <td class="center">{{ it.unit }}</td>
+        <td class="right">{{ it.qty|money2 }}</td>
+        <td class="right">{{ it.unit_price|money0 }}</td>
+        <td class="right">{{ it.amount|money0 }}</td>
+        <td class="right">{{ it.discount|money2 }}</td>
+        <td class="right">{{ it.amount_after|money0 }}</td>
+      </tr>
+      {% endfor %}
+      <tr><td colspan="7" class="right"><b>Tổng tiền trước VAT</b></td><td class="right"><b>{{ o.subtotal|money0 }}</b></td></tr>
+      <tr><td colspan="7" class="right"><b>VAT {{ o.vat_percent|money2 }}%</b></td><td class="right"><b>{{ o.vat_amount|money0 }}</b></td></tr>
+      <tr><td colspan="7" class="right" style="background:#fff3cd"><b>TỔNG CỘNG</b></td><td class="right" style="background:#fff3cd"><b>{{ o.grand_total|money0 }}</b></td></tr>
+    </tbody>
+  </table>
+  <div style="margin-top:6px"><i>Bằng chữ:</i> <b>{{ num_to_vn_words(o.grand_total) }}</b></div>
+  {% if o.notes %}<div style="margin-top:6px"><b>Ghi chú:</b> {{ o.notes }}</div>{% endif %}
+
+  <div class="signers">
+    <div>
+      <div><b>Người lập</b></div>
+      <div class="role">(Ký, ghi rõ họ tên)</div>
+      <div class="name">{{ o.signer_creator or '' }}</div>
+    </div>
+    <div>
+      <div><b>Người duyệt HP89</b></div>
+      <div class="role">(Ký, ghi rõ họ tên)</div>
+      <div class="name">{{ o.signer_approver or o.approver_name or '' }}</div>
+    </div>
+    <div>
+      <div><b>Người giao hàng KBC</b></div>
+      <div class="role">(Ký, ghi rõ họ tên)</div>
+      <div class="name">{{ o.signer_deliverer or '' }}</div>
+    </div>
+  </div>
+</body>
+</html>

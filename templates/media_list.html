@@ -1,0 +1,47 @@
+{% extends 'base.html' %}
+{% block title %}Truyền thông – KBC-HP89{% endblock %}
+{% block content %}
+<div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap">
+  <h1 style="margin:0">📢 Bài truyền thông</h1>
+  <div style="flex:1"></div>
+  {% if current_user.has_cap('create_media') %}
+    <a class="btn btn-primary" href="{{ url_for('media_new') }}">+ Đăng bài mới</a>
+  {% endif %}
+</div>
+
+<div class="card" style="display:flex; gap:6px; flex-wrap:wrap; padding:10px 14px">
+  <a class="btn btn-sm {% if not current_status %}btn-primary{% else %}btn-outline{% endif %}" href="{{ url_for('media_list') }}">Tất cả</a>
+  <a class="btn btn-sm {% if current_status=='draft' %}btn-primary{% else %}btn-outline{% endif %}" href="{{ url_for('media_list', status='draft') }}">Nháp</a>
+  <a class="btn btn-sm {% if current_status=='pending' %}btn-primary{% else %}btn-outline{% endif %}" href="{{ url_for('media_list', status='pending') }}">Chờ KBC duyệt</a>
+  <a class="btn btn-sm {% if current_status=='revision' %}btn-primary{% else %}btn-outline{% endif %}" href="{{ url_for('media_list', status='revision') }}">Yêu cầu sửa</a>
+  <a class="btn btn-sm {% if current_status=='approved' %}btn-primary{% else %}btn-outline{% endif %}" href="{{ url_for('media_list', status='approved') }}">KBC đã duyệt</a>
+  <a class="btn btn-sm {% if current_status=='published' %}btn-primary{% else %}btn-outline{% endif %}" href="{{ url_for('media_list', status='published') }}">Đã đăng</a>
+</div>
+
+<div class="card" style="padding:0">
+{% if posts %}
+<table>
+  <thead>
+    <tr><th>Tiêu đề</th><th>Kênh</th><th>Ngày dự kiến</th><th>Trạng thái</th><th>Người đăng</th><th>Cập nhật</th><th></th></tr>
+  </thead>
+  <tbody>
+    {% for p in posts %}
+    <tr>
+      <td><a href="{{ url_for('media_view', mid=p.id) }}"><b>{{ p.title }}</b></a></td>
+      <td>{{ p.channel or '—' }}</td>
+      <td>{{ p.planned_date|vndate }}</td>
+      <td><span class="pill {{ MEDIA_STATUS_PILL[p.status] }}">{{ MEDIA_STATUS_LABEL[p.status] }}</span></td>
+      <td>{{ p.owner_name or p.owner_user }}
+        <span class="badge-org {% if p.owner_org=='KBC' %}badge-kbc{% else %}badge-hp89{% endif %}">{{ p.owner_org }}</span>
+      </td>
+      <td style="font-size:12px; color:#666">{{ p.updated_at|vndatetime }}</td>
+      <td><a class="btn btn-sm btn-outline" href="{{ url_for('media_view', mid=p.id) }}">Xem</a></td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+  <div style="padding:30px; text-align:center; color:#666">Chưa có bài truyền thông.</div>
+{% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,50 @@
+{% extends 'base.html' %}
+{% block title %}Hợp đồng – KBC-HP89{% endblock %}
+{% block content %}
+<div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap">
+  <h1 style="margin:0">📄 Hợp đồng &amp; Thỏa thuận KBC-HP89</h1>
+  <div style="flex:1"></div>
+  {% if current_user.has_cap('manage_contract') %}
+    <a class="btn btn-primary" href="{{ url_for('contract_new') }}">+ Tạo hợp đồng mới</a>
+  {% endif %}
+</div>
+<div class="card" style="padding:0">
+{% if contracts %}
+<table>
+  <thead>
+    <tr><th>Mã</th><th>Tên hợp đồng</th><th>Đối tác</th><th>Ngày HĐ</th><th>Hạn</th><th>Tiến độ</th><th>Trạng thái</th><th>Chủ HĐ</th><th></th></tr>
+  </thead>
+  <tbody>
+    {% for c in contracts %}
+    {% set st, days = contract_status(c.due_date) %}
+    <tr>
+      <td>{{ c.code or '' }}</td>
+      <td><a href="{{ url_for('contract_view', cid=c.id) }}"><b>{{ c.title }}</b></a></td>
+      <td>{{ c.partner or '' }}</td>
+      <td>{{ c.contract_date|vndate }}</td>
+      <td>{{ c.due_date|vndate }}</td>
+      <td>
+        <div style="background:#eee; border-radius:4px; height:8px; width:100px; overflow:hidden">
+          <div style="background:#2e7d32; height:100%; width:{{ c.progress_percent or 0 }}%"></div>
+        </div>
+        <small>{{ c.progress_percent or 0 }}% {{ c.progress or '' }}</small>
+      </td>
+      <td>
+        {% if st == 'overdue' %}<span class="pill pill-red">Trễ {{ -days }} ngày</span>
+        {% elif st == 'soon' %}<span class="pill pill-yellow">Còn {{ days }} ngày</span>
+        {% elif st == 'ok' %}<span class="pill pill-green">Còn hạn</span>
+        {% endif %}
+      </td>
+      <td>{{ c.owner_name or c.owner_user }}
+        <span class="badge-org {% if c.owner_org=='KBC' %}badge-kbc{% else %}badge-hp89{% endif %}">{{ c.owner_org }}</span>
+      </td>
+      <td><a class="btn btn-sm btn-outline" href="{{ url_for('contract_view', cid=c.id) }}">Xem</a></td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+  <div style="padding:30px; text-align:center; color:#666">Chưa có hợp đồng nào.</div>
+{% endif %}
+</div>
+{% endblock %}

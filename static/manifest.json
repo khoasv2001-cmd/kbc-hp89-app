@@ -1,0 +1,16 @@
+{
+  "name": "KBC-HP89 - Hệ thống quản lý liên kết KBC & HP89",
+  "short_name": "KBC-HP89",
+  "description": "Quản lý đặt hàng, hợp đồng, pháp lý, truyền thông giữa KBC và HP89",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#c61c2d",
+  "theme_color": "#c61c2d",
+  "lang": "vi",
+  "orientation": "portrait",
+  "icons": [
+    { "src": "/static/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/static/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/static/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

@@ -1,0 +1,68 @@
+{% extends 'base.html' %}
+{% block title %}{% if edit_user %}Sửa{% else %}Thêm{% endif %} người dùng – KBC-HP89{% endblock %}
+{% block content %}
+<h1>👥 {% if edit_user %}Sửa người dùng: {{ edit_user.username }}{% else %}Thêm người dùng mới{% endif %}</h1>
+
+<form method="post" class="card">
+  <h2>1. Thông tin cơ bản</h2>
+  {% if not edit_user %}
+  <div class="form-row">
+    <div><label>Tên đăng nhập *</label>
+      <input type="text" name="username" required>
+    </div>
+    <div><label>Mật khẩu *</label>
+      <input type="password" name="password" required minlength="6">
+    </div>
+  </div>
+  {% endif %}
+  <div class="form-row">
+    <div><label>Họ tên đầy đủ</label>
+      <input type="text" name="full_name" value="{{ edit_user.full_name if edit_user else '' }}">
+    </div>
+    <div><label>Email</label>
+      <input type="email" name="email" value="{{ edit_user.email if edit_user else '' }}">
+    </div>
+  </div>
+
+  <h2>2. Đơn vị &amp; Vai trò</h2>
+  <div class="form-row">
+    <div><label>Đơn vị</label>
+      <select name="organization">
+        {% for o in orgs %}
+          <option value="{{ o }}" {% if edit_user and edit_user.organization == o %}selected{% endif %}>{{ org_labels[o] }}</option>
+        {% endfor %}
+      </select>
+      <small style="color:#666">KBC: nhận đơn &amp; giao hàng, duyệt truyền thông. HP89: đặt hàng &amp; soạn nội dung.</small>
+    </div>
+    <div><label>Vai trò chức danh</label>
+      <select name="role">
+        {% for r in role_order %}
+          <option value="{{ r }}" {% if edit_user and edit_user.role == r %}selected{% endif %}>{{ role_labels[r] }}</option>
+        {% endfor %}
+      </select>
+    </div>
+  </div>
+
+  <h2>3. Phân quyền chi tiết</h2>
+  <div style="font-size:13px; color:#666; margin-bottom:10px">Tick các quyền user được phép thực hiện. Nếu không tick gì thì user sẽ có quyền mặc định của vai trò.</div>
+  <div style="display:grid; grid-template-columns: 1fr 1fr; gap:8px 16px">
+    {% for key, label in capabilities %}
+      <label style="display:flex; gap:6px; align-items:flex-start; font-weight:400">
+        <input type="checkbox" name="caps" value="{{ key }}"
+          {% if edit_user and current_caps and key in current_caps %}checked{% endif %}>
+        <span>{{ label }} <code style="color:#888; font-size:11px">[{{ key }}]</code></span>
+      </label>
+    {% endfor %}
+    <label style="display:flex; gap:6px; align-items:flex-start; font-weight:400; padding:6px; background:#fff3cd; border-radius:4px">
+      <input type="checkbox" name="caps" value="{{ manage_users_cap[0] }}"
+        {% if edit_user and current_caps and manage_users_cap[0] in current_caps %}checked{% endif %}>
+      <span><b>⚠️ {{ manage_users_cap[1] }}</b> <code style="color:#888; font-size:11px">[{{ manage_users_cap[0] }}]</code></span>
+    </label>
+  </div>
+
+  <div style="margin-top:18px; display:flex; gap:8px">
+    <button class="btn btn-primary">💾 Lưu</button>
+    <a class="btn btn-secondary" href="{{ url_for('users_list') }}">Quay lại</a>
+  </div>
+</form>
+{% endblock %}

@@ -1,0 +1,37 @@
+{% extends 'base.html' %}
+{% block title %}Sản phẩm – KBC-HP89{% endblock %}
+{% block content %}
+<div style="display:flex; align-items:center; gap:10px">
+  <h1 style="margin:0">🛍️ Danh mục sản phẩm</h1>
+  <div style="flex:1"></div>
+  <a class="btn btn-primary" href="{{ url_for('product_new') }}">+ Thêm sản phẩm</a>
+</div>
+<div class="card" style="padding:0">
+{% if products %}
+<table>
+  <thead>
+    <tr><th>Tên sản phẩm</th><th>ĐVT</th><th>Quy cách</th><th>Giá mặc định</th><th>Trạng thái</th><th></th></tr>
+  </thead>
+  <tbody>
+    {% for p in products %}
+    <tr>
+      <td><b>{{ p.name }}</b></td>
+      <td>{{ p.unit }}</td>
+      <td>{{ p.packaging }}</td>
+      <td>{{ p.default_price|money0 }}</td>
+      <td>{% if p.active %}<span class="pill pill-green">Đang dùng</span>{% else %}<span class="pill pill-gray">Ngưng</span>{% endif %}</td>
+      <td>
+        <a class="btn btn-sm btn-gold" href="{{ url_for('product_edit', prod_id=p.id) }}">✏️</a>
+        <form method="post" action="{{ url_for('product_delete', prod_id=p.id) }}" style="display:inline">
+          <button class="btn btn-sm btn-danger" onclick="return confirm('Xoá {{ p.name }}?')">🗑️</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+  <div style="padding:30px; text-align:center; color:#666">Chưa có sản phẩm nào.</div>
+{% endif %}
+</div>
+{% endblock %}

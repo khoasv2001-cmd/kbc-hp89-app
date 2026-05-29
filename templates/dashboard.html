@@ -1,0 +1,136 @@
+{% extends 'base.html' %}
+{% block title %}Tổng quan – KBC-HP89{% endblock %}
+{% block content %}
+<h1>📊 Tổng Quan KBC – HP89</h1>
+
+<div class="card">
+  <h2>📦 Đơn hàng theo trạng thái</h2>
+  <div class="stat-grid">
+    <a href="{{ url_for('orders_list', status='draft') }}" style="text-decoration:none">
+      <div class="stat-card gray">
+        <div class="stat-lbl">Nháp HP89</div>
+        <div class="stat-num">{{ wf_counts.draft }}</div>
+      </div>
+    </a>
+    <a href="{{ url_for('orders_list', status='pending_hp89') }}" style="text-decoration:none">
+      <div class="stat-card gold">
+        <div class="stat-lbl">Chờ Lãnh đạo HP89 duyệt</div>
+        <div class="stat-num">{{ wf_counts.pending_hp89 }}</div>
+      </div>
+    </a>
+    <a href="{{ url_for('orders_list', status='approved_hp89') }}" style="text-decoration:none">
+      <div class="stat-card blue">
+        <div class="stat-lbl">HP89 đã duyệt — chờ KBC nhận</div>
+        <div class="stat-num">{{ wf_counts.approved_hp89 }}</div>
+      </div>
+    </a>
+    <a href="{{ url_for('orders_list', status='received_kbc') }}" style="text-decoration:none">
+      <div class="stat-card purple">
+        <div class="stat-lbl">KBC đã nhận — chờ giao</div>
+        <div class="stat-num">{{ wf_counts.received_kbc }}</div>
+      </div>
+    </a>
+    <a href="{{ url_for('orders_list', status='delivered_kbc') }}" style="text-decoration:none">
+      <div class="stat-card green">
+        <div class="stat-lbl">Hoàn thành (đã giao)</div>
+        <div class="stat-num">{{ wf_counts.delivered_kbc }}</div>
+      </div>
+    </a>
+  </div>
+  <div style="margin-top:12px; padding: 10px 14px; background:#fff3cd; border-radius:6px; font-size:13px;">
+    💰 Doanh thu các đơn đã giao: <b>{{ o_revenue|money0 }}</b> VND
+    &nbsp;·&nbsp; Số đơn đã giao: <b>{{ o_delivered }}</b>
+  </div>
+</div>
+
+<div class="card">
+  <h2>📄 Hợp đồng</h2>
+  <div class="stat-grid">
+    <div class="stat-card blue">
+      <div class="stat-lbl">Tổng số hợp đồng</div>
+      <div class="stat-num">{{ c_count }}</div>
+    </div>
+    <div class="stat-card" style="border-left-color:#c62828">
+      <div class="stat-lbl" style="color:#c62828">Đã trễ hạn</div>
+      <div class="stat-num" style="color:#c62828">{{ overdue|length }}</div>
+    </div>
+    <div class="stat-card gold">
+      <div class="stat-lbl">Sắp đến hạn (≤7 ngày)</div>
+      <div class="stat-num">{{ soon|length }}</div>
+    </div>
+  </div>
+  {% if overdue or soon %}
+  <table style="margin-top:14px">
+    <thead><tr><th>Tên HĐ</th><th>Đối tác</th><th>Hạn</th><th>Trạng thái</th></tr></thead>
+    <tbody>
+      {% for c, days in overdue %}
+      <tr>
+        <td><a href="{{ url_for('contract_view', cid=c.id) }}">{{ c.title }}</a></td>
+        <td>{{ c.partner or '' }}</td>
+        <td>{{ c.due_date|vndate }}</td>
+        <td><span class="pill pill-red">TRỄ {{ -days }} ngày</span></td>
+      </tr>
+      {% endfor %}
+      {% for c, days in soon %}
+      <tr>
+        <td><a href="{{ url_for('contract_view', cid=c.id) }}">{{ c.title }}</a></td>
+        <td>{{ c.partner or '' }}</td>
+        <td>{{ c.due_date|vndate }}</td>
+        <td><span class="pill pill-yellow">Còn {{ days }} ngày</span></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2>📢 Truyền thông</h2>
+  <div class="stat-grid">
+    <a href="{{ url_for('media_list', status='draft') }}" style="text-decoration:none">
+      <div class="stat-card gray">
+        <div class="stat-lbl">Nháp</div>
+        <div class="stat-num">{{ media_counts.draft }}</div>
+      </div>
+    </a>
+    <a href="{{ url_for('media_list', status='pending') }}" style="text-decoration:none">
+      <div class="stat-card gold">
+        <div class="stat-lbl">Chờ KBC duyệt</div>
+        <div class="stat-num">{{ media_counts.pending }}</div>
+      </div>
+    </a>
+    <a href="{{ url_for('media_list', status='revision') }}" style="text-decoration:none">
+      <div class="stat-card" style="border-left-color:#c62828">
+        <div class="stat-lbl" style="color:#c62828">KBC yêu cầu sửa</div>
+        <div class="stat-num" style="color:#c62828">{{ media_counts.revision }}</div>
+      </div>
+    </a>
+    <a href="{{ url_for('media_list', status='approved') }}" style="text-decoration:none">
+      <div class="stat-card green">
+        <div class="stat-lbl">KBC đã thống nhất</div>
+        <div class="stat-num">{{ media_counts.approved }}</div>
+      </div>
+    </a>
+    <a href="{{ url_for('media_list', status='published') }}" style="text-decoration:none">
+      <div class="stat-card blue">
+        <div class="stat-lbl">Đã đăng</div>
+        <div class="stat-num">{{ media_counts.published }}</div>
+      </div>
+    </a>
+  </div>
+</div>
+
+<div class="card" style="text-align:center; background:#fff8e1; border-left:4px solid #c61c2d;">
+  <h2 style="margin-bottom:8px">🚀 Truy cập nhanh</h2>
+  {% if current_user.has_cap('create_order') %}
+    <a class="btn btn-primary" href="{{ url_for('order_new') }}">+ Tạo đơn đặt hàng</a>
+  {% endif %}
+  {% if current_user.has_cap('manage_contract') %}
+    <a class="btn btn-gold" href="{{ url_for('contract_new') }}">+ Tạo hợp đồng</a>
+  {% endif %}
+  {% if current_user.has_cap('create_media') %}
+    <a class="btn btn-outline" href="{{ url_for('media_new') }}">+ Đăng truyền thông</a>
+  {% endif %}
+  <a class="btn btn-secondary" href="{{ url_for('legal_new') }}">+ Thêm giấy tờ pháp lý</a>
+</div>
+{% endblock %}

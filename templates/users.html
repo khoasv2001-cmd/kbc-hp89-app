@@ -1,0 +1,67 @@
+{% extends 'base.html' %}
+{% block title %}Người dùng – KBC-HP89{% endblock %}
+{% block content %}
+<div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap">
+  <h1 style="margin:0">👥 Quản lý người dùng</h1>
+  <div style="flex:1"></div>
+  <a class="btn btn-primary" href="{{ url_for('user_new') }}">+ Thêm người dùng</a>
+</div>
+
+<div class="card" style="padding:0">
+<table>
+  <thead>
+    <tr>
+      <th style="width:32px">✓</th>
+      <th>Đơn vị</th>
+      <th>Họ tên / Username</th>
+      <th>Vai trò</th>
+      <th>Email</th>
+      <th>Quyền</th>
+      <th>Thao tác</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for row, u in users %}
+    <tr>
+      <td style="text-align:center; font-size:18px">
+        {% if u.organization == 'KBC' %}
+          <span style="color:#c61c2d" title="Nhân sự KBC">✅</span>
+        {% else %}
+          <span style="color:#1a4d8c" title="Nhân sự HP89">🔵</span>
+        {% endif %}
+      </td>
+      <td>
+        <span class="badge-org {% if u.organization=='KBC' %}badge-kbc{% else %}badge-hp89{% endif %}" style="font-size:13px; padding:4px 10px">{{ u.organization }}</span>
+      </td>
+      <td><b>{{ u.full_name or '' }}</b><br><small style="color:#888">@{{ u.username }}</small></td>
+      <td>{{ u.role_label }}</td>
+      <td style="font-size:13px">{{ u.email or '—' }}</td>
+      <td style="font-size:12px; color:#666">
+        {% set count = u.caps|length %}
+        {{ count }} quyền
+        {% if u.is_admin %}<br><b style="color:#c61c2d">(toàn quyền)</b>{% endif %}
+      </td>
+      <td>
+        <a class="btn btn-sm btn-gold" href="{{ url_for('user_edit', uid=row.id) }}">✏️</a>
+        <form method="post" action="{{ url_for('user_reset', uid=row.id) }}" style="display:inline-flex; gap:4px">
+          <input type="password" name="new_password" placeholder="Pass mới" style="width:90px">
+          <button class="btn btn-sm btn-secondary">🔑</button>
+        </form>
+        {% if u.id != current_user.id %}
+        <form method="post" action="{{ url_for('user_delete', uid=row.id) }}" style="display:inline">
+          <button class="btn btn-sm btn-danger" onclick="return confirm('Xoá {{ u.username }}?')">🗑️</button>
+        </form>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+
+<div class="card" style="background:#fff3cd; border-left:4px solid #ed6c02">
+  <b>📌 Quy ước phân biệt nhân sự:</b><br>
+  ✅ <span class="badge-org badge-kbc">KBC</span> — Nhân sự KBC (tiếp nhận và giao hàng, duyệt truyền thông).<br>
+  🔵 <span class="badge-org badge-hp89">HP89</span> — Nhân sự HP89 (đặt hàng, soạn nội dung truyền thông).
+</div>
+{% endblock %}

@@ -1,0 +1,37 @@
+{% extends 'base.html' %}
+{% block title %}{{ 'Sửa' if action=='edit' else 'Thêm' }} giấy tờ pháp lý – KBC-HP89{% endblock %}
+{% block content %}
+<h1>⚖️ {{ 'Sửa' if action=='edit' else 'Thêm' }} giấy tờ pháp lý</h1>
+<form method="post" enctype="multipart/form-data" class="card">
+  <div class="form-row full">
+    <div><label>Tiêu đề *</label>
+      <input type="text" name="title" required value="{{ form.title or '' }}">
+    </div>
+  </div>
+  <div class="form-row">
+    <div><label>Thư mục cha</label>
+      <select name="parent_id">
+        <option value="">— Gốc —</option>
+        {% for oid, lbl in options %}
+          <option value="{{ oid }}" {% if form.parent_id and form.parent_id|string == oid|string %}selected{% endif %}>{{ lbl }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div><label>File đính kèm</label>
+      <input type="file" name="file">
+      {% if node and node.original_name %}
+        <small style="color:#2e7d32">Đang có: {{ node.original_name }}</small>
+      {% endif %}
+    </div>
+  </div>
+  <div class="form-row full">
+    <div><label>Mô tả</label>
+      <textarea name="description" rows="3">{{ form.description or '' }}</textarea>
+    </div>
+  </div>
+  <div style="display:flex; gap:8px; margin-top:14px">
+    <button class="btn btn-primary">💾 Lưu</button>
+    <a class="btn btn-secondary" href="{{ url_for('legal_list') }}">Quay lại</a>
+  </div>
+</form>
+{% endblock %}

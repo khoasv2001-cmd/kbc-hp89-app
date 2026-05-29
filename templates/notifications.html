@@ -1,0 +1,235 @@
+{% extends 'base.html' %}
+{% block title %}Thông báo – KBC-HP89{% endblock %}
+{% block content %}
+<div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap">
+  <h1 style="margin:0">🔔 Thông báo</h1>
+  <div style="flex:1"></div>
+  <form method="post" action="{{ url_for('notifications_read_all') }}">
+    <button class="btn btn-secondary">✓ Đánh dấu tất cả đã đọc</button>
+  </form>
+</div>
+
+<!-- KHUNG BẬT THÔNG BÁO NỔI -->
+<div class="card" id="push-card" style="background: linear-gradient(135deg, #fff8e1 0%, #fffaf0 100%); border-left:5px solid #c61c2d">
+  <h2 style="margin-bottom:6px">📲 Thông báo nổi trên điện thoại</h2>
+  <p style="margin:4px 0 12px; color:#666">
+    Bật thông báo nổi (push notification) để nhận tin báo ngay cả khi không mở app — giống Zalo, Messenger.
+  </p>
+
+  <div id="push-status" style="padding:10px 14px; border-radius:8px; margin-bottom:10px; font-size:14px;
+                                background:#e9ecef; color:#495057">
+    🔍 Đang kiểm tra trạng thái...
+  </div>
+
+  <div style="display:flex; flex-wrap:wrap; gap:8px">
+    <button id="btn-enable-push" class="btn btn-primary" onclick="enablePush()" style="display:none">
+      🔔 BẬT THÔNG BÁO NỔI
+    </button>
+    <button id="btn-test-push" class="btn btn-gold" onclick="testPush()" style="display:none">
+      🧪 Gửi thử 1 thông báo
+    </button>
+    <button id="btn-disable-push" class="btn btn-secondary" onclick="disablePush()" style="display:none">
+      🔕 Tắt thông báo nổi
+    </button>
+  </div>
+
+  <div id="iphone-guide" style="display:none; margin-top:14px; padding:14px; background:#fff; border-radius:8px; border:1px dashed #c61c2d">
+    <h3 style="margin:0 0 10px; color:#c61c2d">📱 Bạn đang dùng iPhone / iPad?</h3>
+    <p style="margin:4px 0; font-size:14px">
+      Apple chỉ cho phép thông báo nổi khi app được <b>cài vào Màn hình chính</b>. Làm theo các bước sau:
+    </p>
+    <ol style="font-size:14px; line-height:1.7; padding-left:22px">
+      <li>Mở app này bằng trình duyệt <b>Safari</b> (KHÔNG dùng Chrome/Firefox trên iPhone).</li>
+      <li>Bấm nút <b>Chia sẻ</b> <span style="display:inline-block; padding:1px 6px; background:#f0f0f0; border-radius:4px">⬆️</span> ở thanh dưới Safari.</li>
+      <li>Cuộn xuống chọn <b>"Thêm vào Màn hình chính"</b> (Add to Home Screen).</li>
+      <li>Bấm <b>"Thêm"</b> ở góc phải.</li>
+      <li>Đóng Safari, mở app từ <b>icon KBC-HP89</b> trên màn hình chính.</li>
+      <li>Đăng nhập lại, vào trang Thông báo này, bấm <b>"BẬT THÔNG BÁO NỔI"</b>.</li>
+      <li>Khi iPhone hỏi quyền, bấm <b>"Cho phép"</b> (Allow).</li>
+    </ol>
+    <div style="background:#fff3cd; padding:8px 12px; border-radius:6px; font-size:13px; margin-top:8px">
+      ⚠️ <b>Yêu cầu:</b> iPhone phải dùng <b>iOS 16.4 trở lên</b>. Kiểm tra ở Cài đặt → Cài đặt chung → Giới thiệu → Phiên bản phần mềm.
+    </div>
+  </div>
+
+  <div id="android-guide" style="display:none; margin-top:14px; padding:14px; background:#fff; border-radius:8px; border:1px dashed #1a4d8c">
+    <h3 style="margin:0 0 10px; color:#1a4d8c">🤖 Bạn đang dùng Android?</h3>
+    <p style="margin:4px 0; font-size:14px">
+      Khuyến nghị cài app vào màn hình chính để chạy mượt và nhận thông báo tốt nhất:
+    </p>
+    <ol style="font-size:14px; line-height:1.7; padding-left:22px">
+      <li>Mở app bằng <b>Chrome</b>.</li>
+      <li>Bấm menu <b>⋮</b> ở góc phải trên.</li>
+      <li>Chọn <b>"Cài đặt ứng dụng"</b> hoặc <b>"Thêm vào Màn hình chính"</b>.</li>
+      <li>Mở app từ icon, bấm <b>"BẬT THÔNG BÁO NỔI"</b> ở trang này.</li>
+    </ol>
+  </div>
+</div>
+
+<!-- DANH SÁCH THÔNG BÁO -->
+<div class="card" style="padding:0">
+{% if notifications %}
+<ul style="list-style:none; padding:0; margin:0">
+  {% for n in notifications %}
+  <li style="padding:12px 16px; border-bottom:1px solid #eee; {% if not n.is_read %}background:#fff8e1{% endif %}">
+    <a href="{{ url_for('notification_open', nid=n.id) }}" style="text-decoration:none; color:#333">
+      {% if not n.is_read %}<b>🔴 {{ n.message }}</b>{% else %}{{ n.message }}{% endif %}
+      <div style="font-size:12px; color:#888; margin-top:4px">{{ n.created_at|vndatetime }}</div>
+    </a>
+  </li>
+  {% endfor %}
+</ul>
+{% else %}
+  <div style="padding:30px; text-align:center; color:#666">Không có thông báo.</div>
+{% endif %}
+</div>
+
+<script>
+const VAPID_PUBLIC_KEY = "{{ vapid_public_key|default('') }}";
+
+function urlBase64ToUint8Array(b64) {
+  const padding = '='.repeat((4 - b64.length % 4) % 4);
+  const base64 = (b64 + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const raw = atob(base64);
+  const out = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+  return out;
+}
+
+function setStatus(html, color) {
+  const el = document.getElementById('push-status');
+  el.innerHTML = html;
+  if (color === 'green') el.style.background = '#d1e7dd', el.style.color = '#0f5132';
+  else if (color === 'red') el.style.background = '#f8d7da', el.style.color = '#842029';
+  else if (color === 'yellow') el.style.background = '#fff3cd', el.style.color = '#856404';
+  else el.style.background = '#e9ecef', el.style.color = '#495057';
+}
+
+function showButton(id, show) {
+  document.getElementById(id).style.display = show ? 'inline-block' : 'none';
+}
+
+function detectPlatform() {
+  const ua = navigator.userAgent;
+  const isiOS = /iPad|iPhone|iPod/.test(ua) && !window.MSStream;
+  const isAndroid = /Android/.test(ua);
+  const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone;
+  return { isiOS, isAndroid, isStandalone };
+}
+
+async function refreshPushStatus() {
+  const { isiOS, isAndroid, isStandalone } = detectPlatform();
+
+  // Hiện guide phù hợp
+  if (isiOS && !isStandalone) document.getElementById('iphone-guide').style.display = 'block';
+  if (isAndroid && !isStandalone) document.getElementById('android-guide').style.display = 'block';
+
+  if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
+    setStatus('❌ Trình duyệt của bạn không hỗ trợ thông báo nổi. Hãy dùng Chrome (Android) hoặc Safari iOS 16.4+ (đã cài app vào màn hình chính).', 'red');
+    return;
+  }
+
+  if (!VAPID_PUBLIC_KEY) {
+    setStatus('⚠️ Server chưa cấu hình khóa VAPID. Liên hệ admin để bật tính năng push.', 'yellow');
+    return;
+  }
+
+  if (isiOS && !isStandalone) {
+    setStatus('📱 <b>Bạn đang dùng Safari trên iPhone.</b> Để nhận thông báo nổi, hãy <b>cài app vào Màn hình chính</b> trước (xem hướng dẫn bên dưới), rồi mở lại app từ icon.', 'yellow');
+    return;
+  }
+
+  const perm = Notification.permission;
+  if (perm === 'denied') {
+    setStatus('🔕 Bạn đã từ chối quyền thông báo. Vào Cài đặt trình duyệt → Quyền của trang → Thông báo → Cho phép.', 'red');
+    return;
+  }
+
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    if (sub && perm === 'granted') {
+      setStatus('✅ Thông báo nổi đang BẬT cho thiết bị này.', 'green');
+      showButton('btn-test-push', true);
+      showButton('btn-disable-push', true);
+      showButton('btn-enable-push', false);
+    } else {
+      setStatus('🔔 Thông báo nổi đang TẮT. Bấm nút bên dưới để bật.', 'yellow');
+      showButton('btn-enable-push', true);
+      showButton('btn-test-push', false);
+      showButton('btn-disable-push', false);
+    }
+  } catch (e) {
+    setStatus('⚠️ Lỗi kiểm tra: ' + e.message, 'red');
+  }
+}
+
+async function enablePush() {
+  if (!VAPID_PUBLIC_KEY) {
+    alert('Server chưa cấu hình VAPID key. Liên hệ admin.');
+    return;
+  }
+  try {
+    const perm = await Notification.requestPermission();
+    if (perm !== 'granted') {
+      alert('Bạn cần CHO PHÉP quyền thông báo để bật tính năng này.');
+      return;
+    }
+    const reg = await navigator.serviceWorker.ready;
+    const existing = await reg.pushManager.getSubscription();
+    if (existing) await existing.unsubscribe();
+    const sub = await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
+    });
+    const resp = await fetch('/push/subscribe', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({subscription: sub.toJSON()})
+    });
+    if (resp.ok) {
+      alert('✅ Đã bật thông báo nổi! Bấm "Gửi thử 1 thông báo" để kiểm tra.');
+      refreshPushStatus();
+    } else {
+      alert('❌ Lỗi đăng ký với server.');
+    }
+  } catch (e) {
+    alert('❌ Lỗi: ' + e.message);
+  }
+}
+
+async function disablePush() {
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    if (sub) {
+      await fetch('/push/unsubscribe', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({endpoint: sub.endpoint})
+      });
+      await sub.unsubscribe();
+    }
+    alert('🔕 Đã tắt thông báo nổi.');
+    refreshPushStatus();
+  } catch (e) {
+    alert('Lỗi: ' + e.message);
+  }
+}
+
+async function testPush() {
+  try {
+    const r = await fetch('/push/test', {method: 'POST'});
+    if (r.ok) {
+      alert('🧪 Đã gửi thử. Kiểm tra thanh thông báo điện thoại trong vài giây tới.');
+    } else {
+      alert('Lỗi gửi thử.');
+    }
+  } catch (e) {
+    alert('Lỗi: ' + e.message);
+  }
+}
+
+refreshPushStatus();
+</script>
+{% endblock %}

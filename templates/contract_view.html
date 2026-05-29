@@ -1,0 +1,149 @@
+{% extends 'base.html' %}
+{% block title %}{{ c.title }} – KBC-HP89{% endblock %}
+{% block content %}
+{% set st, days = contract_status(c.due_date) %}
+
+<div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap">
+  <h1 style="margin:0">📄 {{ c.title }}</h1>
+  {% if st == 'overdue' %}<span class="pill pill-red">Trễ {{ -days }} ngày</span>
+  {% elif st == 'soon' %}<span class="pill pill-yellow">Còn {{ days }} ngày</span>
+  {% elif st == 'ok' %}<span class="pill pill-green">Còn hạn</span>{% endif %}
+  <div style="flex:1"></div>
+  <a class="btn btn-secondary" href="{{ url_for('contracts_list') }}">← Danh sách</a>
+  {% if editable %}<a class="btn btn-gold" href="{{ url_for('contract_edit', cid=c.id) }}">✏️ Sửa</a>{% endif %}
+  {% if current_user.is_admin or c.owner_id == current_user.id %}
+    <form method="post" action="{{ url_for('contract_delete', cid=c.id) }}" style="display:inline">
+      <button class="btn btn-danger" onclick="return confirm('Xoá hợp đồng?')">🗑️ Xoá</button>
+    </form>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2>📋 Thông tin hợp đồng</h2>
+  <div style="display:grid; grid-template-columns: 1fr 1fr; gap:8px 24px">
+    <div><b>Mã HĐ:</b> {{ c.code or '—' }}</div>
+    <div><b>Đối tác:</b> {{ c.partner or '—' }}</div>
+    <div><b>MST:</b> {{ c.supplier_tax or '—' }}</div>
+    <div><b>Người liên hệ:</b> {{ c.contact_person or '—' }} ({{ c.contact_phone or '—' }})</div>
+    <div><b>Ngày ký:</b> {{ c.contract_date|vndate }}</div>
+    <div><b>Ngày hết hạn:</b> {{ c.due_date|vndate }}</div>
+    <div><b>Tổng giá trị:</b> {{ c.total_value|money0 }}</div>
+    <div><b>Đã thanh toán:</b> {{ c.paid_amount|money0 }}</div>
+    <div style="grid-column:1/-1"><b>Tiến độ:</b> {{ c.progress or '—' }} ({{ c.progress_percent or 0 }}%)
+      <div style="background:#eee; border-radius:4px; height:10px; max-width:300px; overflow:hidden; margin-top:4px">
+        <div style="background:#2e7d32; height:100%; width:{{ c.progress_percent or 0 }}%"></div>
+      </div>
+    </div>
+    {% if c.notes %}<div style="grid-column:1/-1"><b>Ghi chú:</b> {{ c.notes }}</div>{% endif %}
+    <div style="grid-column:1/-1; color:#666; font-size:13px">
+      Chủ HĐ: {{ c.owner_name or c.owner_user }}
+      <span class="badge-org {% if c.owner_org=='KBC' %}badge-kbc{% else %}badge-hp89{% endif %}">{{ c.owner_org }}</span>
+      · Tạo lúc {{ c.created_at|vndatetime }}
+    </div>
+  </div>
+</div>
+
+<!-- FILE ĐÍNH KÈM CHÍNH -->
+<div class="card" id="files">
+  <h2>📎 File chính</h2>
+  <div style="display:flex; flex-wrap:wrap; gap:8px">
+    {% for fld, lbl in [('contract_file','Hợp đồng'),('handover_file','Biên bản bàn giao'),('appendix_file','Phụ lục'),('invoice_file','Hóa đơn VAT'),('other_file','Khác')] %}
+      {% if c[fld] %}
+        <a class="btn btn-outline btn-sm" href="{{ url_for('contract_file', cid=c.id, which=fld) }}">📥 {{ lbl }}</a>
+      {% endif %}
+    {% endfor %}
+  </div>
+
+  <h2 style="margin-top:18px">📁 File chứng từ bổ sung (theo danh mục)</h2>
+  {% for key, lbl in DOC_CATEGORIES %}
+    <div style="margin-bottom:14px; padding-bottom:10px; border-bottom:1px dashed #ddd">
+      <div style="font-weight:700">{{ lbl }}</div>
+      <div style="display:flex; flex-wrap:wrap; gap:6px; margin:6px 0">
+        {% for a in attachments[key] %}
+          <span style="display:inline-flex; align-items:center; gap:4px">
+            <a class="btn btn-outline btn-sm" href="{{ url_for('attach_download', aid=a.id) }}">📥 {{ a.original_name or a.stored_name }}</a>
+            {% if editable %}
+              <form method="post" action="{{ url_for('attach_delete', aid=a.id) }}" style="display:inline">
+                <button class="btn btn-sm btn-danger" style="padding:1px 7px">×</button>
+              </form>
+            {% endif %}
+          </span>
+        {% endfor %}
+        {% if not attachments[key] %}<span style="color:#999">(chưa có)</span>{% endif %}
+      </div>
+      {% if editable %}
+      <form method="post" enctype="multipart/form-data" action="{{ url_for('attach_upload', rtype='contract', rid=c.id, category=key) }}" style="display:flex; gap:6px">
+        <input type="file" name="files" multiple style="flex:1">
+        <button class="btn btn-sm btn-gold">+ Tải lên</button>
+      </form>
+      {% endif %}
+    </div>
+  {% endfor %}
+</div>
+
+<!-- SHARE -->
+{% if current_user.id == c.owner_id or current_user.is_admin %}
+<div class="card">
+  <h2>🔐 Chia sẻ quyền</h2>
+  {% if shared %}
+    <table>
+      <thead><tr><th>Người</th><th>Quyền</th><th></th></tr></thead>
+      <tbody>
+        {% for s in shared %}
+        <tr>
+          <td>{{ s.full_name or s.username }}
+            <span class="badge-org {% if s.organization=='KBC' %}badge-kbc{% else %}badge-hp89{% endif %}">{{ s.organization }}</span>
+          </td>
+          <td>{{ 'Sửa' if s.perm == 'edit' else 'Chỉ xem' }}</td>
+          <td>
+            <form method="post" action="{{ url_for('revoke_share', rtype='contract', rid=c.id, user_id=s.id) }}" style="display:inline">
+              <button class="btn btn-sm btn-danger">Thu hồi</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+  <form method="post" action="{{ url_for('share_record', rtype='contract', rid=c.id) }}" style="margin-top:8px; display:flex; gap:6px">
+    <select name="user_id" required style="flex:1">
+      <option value="">— Chọn người để chia sẻ —</option>
+      {% for u in all_users %}<option value="{{ u.id }}">{{ u.full_name or u.username }} ({{ u.organization }})</option>{% endfor %}
+    </select>
+    <select name="perm">
+      <option value="view">Chỉ xem</option>
+      <option value="edit">Cho sửa</option>
+    </select>
+    <button class="btn btn-primary">Chia sẻ</button>
+  </form>
+</div>
+{% endif %}
+
+<!-- COMMENTS -->
+<div class="card" id="comments">
+  <h2>💬 Nhận xét</h2>
+  {% if comments %}
+    {% for cm in comments %}
+    <div style="border-left:3px solid #c61c2d; padding:6px 12px; margin-bottom:8px; background:#fffaf0">
+      <div style="font-size:12px; color:#6b4f1a">
+        <b>{{ cm.full_name or cm.username }}</b>
+        <span class="badge-org {% if cm.organization=='KBC' %}badge-kbc{% else %}badge-hp89{% endif %}">{{ cm.organization }}</span>
+        · {{ cm.created_at|vndatetime }}
+        {% if current_user.is_admin or cm.user_id == current_user.id %}
+          <form method="post" action="{{ url_for('delete_comment', cmt_id=cm.id) }}" style="display:inline">
+            <button class="btn btn-sm btn-danger" style="padding:1px 6px">×</button>
+          </form>
+        {% endif %}
+      </div>
+      <div style="margin-top:4px">{{ cm.content }}</div>
+    </div>
+    {% endfor %}
+  {% else %}<div style="color:#999">Chưa có nhận xét.</div>{% endif %}
+  {% if current_user.has_cap('comment') %}
+    <form method="post" action="{{ url_for('add_comment', rtype='contract', rid=c.id) }}" style="margin-top:10px">
+      <textarea name="content" rows="2" placeholder="Nhập nhận xét..." required></textarea>
+      <button class="btn btn-primary btn-sm" style="margin-top:6px">Gửi</button>
+    </form>
+  {% endif %}
+</div>
+{% endblock %}

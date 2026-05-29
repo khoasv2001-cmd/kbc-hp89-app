@@ -1,0 +1,203 @@
+{% extends 'base.html' %}
+{% block title %}Đơn {{ o.code or '#' ~ o.id }} – KBC-HP89{% endblock %}
+{% block content %}
+
+<div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap">
+  <h1 style="margin:0">📦 Đơn hàng {{ o.code or '#'~o.id }}</h1>
+  <span class="pill {{ ORDER_WF_PILL[o.workflow_status] }}" style="font-size:14px; padding:6px 14px">
+    {{ ORDER_WF_LABEL[o.workflow_status] }}
+  </span>
+  <div style="flex:1"></div>
+  <a class="btn btn-secondary" href="{{ url_for('orders_list') }}">← Danh sách</a>
+  {% if o.workflow_status not in ['draft','pending_hp89'] %}
+    <a class="btn btn-gold" target="_blank" href="{{ url_for('order_print', oid=o.id) }}">🖨️ In phiếu giao hàng</a>
+  {% endif %}
+</div>
+
+<!-- WORKFLOW BAR -->
+<div class="card" style="padding:14px">
+  <h2>🔄 Tiến trình xử lý</h2>
+  <div style="display:flex; flex-wrap:wrap; gap:6px; align-items:center">
+    {% set steps = [
+      ('draft','Nháp HP89'),
+      ('pending_hp89','Chờ HP89 duyệt'),
+      ('approved_hp89','HP89 đã duyệt'),
+      ('received_kbc','KBC đã nhận'),
+      ('delivered_kbc','KBC đã giao')
+    ] %}
+    {% set order_index = ['draft','pending_hp89','approved_hp89','received_kbc','delivered_kbc'].index(o.workflow_status) %}
+    {% for st, lbl in steps %}
+      {% set idx = loop.index0 %}
+      <span class="pill {% if idx <= order_index %}pill-green{% else %}pill-gray{% endif %}" style="padding:6px 12px">
+        {% if idx <= order_index %}✓{% else %}○{% endif %} {{ lbl }}
+      </span>
+      {% if not loop.last %}<span style="color:#aaa">→</span>{% endif %}
+    {% endfor %}
+  </div>
+
+  <!-- Workflow action buttons -->
+  <div style="margin-top:18px; display:flex; flex-wrap:wrap; gap:8px">
+    {% if o.workflow_status == 'draft' %}
+      {% if editable %}
+        <a class="btn btn-gold" href="{{ url_for('order_edit', oid=o.id) }}">✏️ Sửa</a>
+      {% endif %}
+      {% if current_user.is_admin or o.owner_id == current_user.id %}
+        <form method="post" action="{{ url_for('order_submit', oid=o.id) }}" style="display:inline">
+          <button class="btn btn-primary" onclick="return confirm('Gửi đơn này cho Lãnh đạo HP89 duyệt?')">📤 Gửi Lãnh đạo HP89 duyệt</button>
+        </form>
+      {% endif %}
+    {% elif o.workflow_status == 'pending_hp89' %}
+      {% if current_user.has_cap('approve_hp89_order') %}
+        <form method="post" action="{{ url_for('order_approve_hp89', oid=o.id) }}" style="display:inline">
+          <button class="btn btn-success" onclick="return confirm('Duyệt đơn này và đẩy sang KBC?')">✅ Duyệt đơn (Lãnh đạo HP89)</button>
+        </form>
+        <form method="post" action="{{ url_for('order_reject_hp89', oid=o.id) }}" style="display:inline; display:flex; gap:6px; align-items:center">
+          <input type="text" name="note" placeholder="Lý do trả lại (tuỳ chọn)" style="width:240px">
+          <button class="btn btn-warning">↩ Trả lại Nháp</button>
+        </form>
+      {% endif %}
+    {% elif o.workflow_status == 'approved_hp89' %}
+      {% if current_user.has_cap('receive_kbc_order') %}
+        <form method="post" action="{{ url_for('order_receive_kbc', oid=o.id) }}" style="display:inline">
+          <button class="btn btn-primary" onclick="return confirm('Xác nhận KBC NHẬN đơn này?')">📥 KBC NHẬN đơn</button>
+        </form>
+      {% endif %}
+    {% elif o.workflow_status == 'received_kbc' %}
+      {% if current_user.has_cap('deliver_kbc_order') %}
+        <form method="post" action="{{ url_for('order_deliver_kbc', oid=o.id) }}" style="display:inline">
+          <button class="btn btn-success" onclick="return confirm('Xác nhận KBC ĐÃ GIAO XONG đơn này?')">✅ TICK ĐÃ GIAO</button>
+        </form>
+      {% endif %}
+    {% endif %}
+    {% if current_user.is_admin and o.workflow_status != 'draft' %}
+      <form method="post" action="{{ url_for('order_reopen', oid=o.id) }}" style="display:inline">
+        <button class="btn btn-secondary" onclick="return confirm('Admin: Mở lại đơn về trạng thái Nháp?')">🔁 Mở lại</button>
+      </form>
+    {% endif %}
+    {% if (current_user.is_admin or o.owner_id == current_user.id) and o.workflow_status == 'draft' %}
+      <form method="post" action="{{ url_for('order_delete', oid=o.id) }}" style="display:inline">
+        <button class="btn btn-danger" onclick="return confirm('Xoá đơn?')">🗑️ Xoá</button>
+      </form>
+    {% endif %}
+  </div>
+
+  <!-- Lịch sử mốc thời gian -->
+  <div style="margin-top:14px; font-size:13px; color:#666; line-height:1.8">
+    <div>📝 Tạo bởi <b>{{ o.owner_name or o.owner_user }}</b>
+      <span class="badge-org {% if o.owner_org=='KBC' %}badge-kbc{% else %}badge-hp89{% endif %}">{{ o.owner_org }}</span>
+      lúc {{ o.created_at|vndatetime }}</div>
+    {% if o.submitted_at %}
+      <div>📤 Gửi duyệt HP89 lúc {{ o.submitted_at|vndatetime }}</div>
+    {% endif %}
+    {% if o.approved_at %}
+      <div>✅ Lãnh đạo HP89 <b>{{ o.approver_name or o.approver_user }}</b> duyệt lúc {{ o.approved_at|vndatetime }}</div>
+    {% endif %}
+    {% if o.received_at %}
+      <div>📥 KBC <b>{{ o.receiver_name or o.receiver_user }}</b> nhận đơn lúc {{ o.received_at|vndatetime }}</div>
+    {% endif %}
+    {% if o.delivered_at %}
+      <div>🚚 KBC <b>{{ o.deliverer_name or o.deliverer_user }}</b> giao hàng lúc {{ o.delivered_at|vndatetime }}</div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- THÔNG TIN ĐƠN -->
+<div class="card">
+  <h2>📋 Thông tin đơn</h2>
+  <div style="display:grid; grid-template-columns: 1fr 1fr; gap:8px 24px; font-size:14px">
+    <div><b>Ngày:</b> {{ o.order_date|vndate }}</div>
+    <div><b>Người giới thiệu:</b> {{ o.referrer or '—' }}</div>
+    <div><b>Nơi nhận:</b> {{ o.customer_name }}</div>
+    <div><b>SĐT:</b> {{ o.customer_phone or '—' }}</div>
+    <div style="grid-column:1/-1"><b>Địa chỉ:</b> {{ o.customer_address or '—' }}</div>
+    {% if o.invoice_company %}
+      <div><b>Đơn vị xuất HĐ:</b> {{ o.invoice_company }}</div>
+      <div><b>MST:</b> {{ o.invoice_tax_code or '—' }}</div>
+      <div><b>Địa chỉ HĐ:</b> {{ o.invoice_address or '—' }}</div>
+      <div><b>Email/SĐT:</b> {{ o.invoice_email or '—' }} / {{ o.invoice_phone or '—' }}</div>
+    {% endif %}
+    <div><b>Hình thức TT:</b> {{ o.payment_method or '—' }}</div>
+    <div><b>TK CK:</b> {{ o.bank_account or '—' }}</div>
+  </div>
+</div>
+
+<!-- DANH SÁCH SẢN PHẨM -->
+<div class="card">
+  <h2>🛒 Sản phẩm</h2>
+  <table>
+    <thead>
+      <tr><th>#</th><th>Sản phẩm</th><th>ĐVT</th><th>Quy cách</th><th>SL</th><th>Đơn giá</th><th>Thành tiền</th><th>CK %</th><th>Sau CK</th></tr>
+    </thead>
+    <tbody>
+      {% for it in items %}
+      <tr>
+        <td>{{ loop.index }}</td>
+        <td>{{ it.product_name }}</td>
+        <td>{{ it.unit or '' }}</td>
+        <td>{{ it.packaging or '' }}</td>
+        <td>{{ it.qty|money2 }}</td>
+        <td>{{ it.unit_price|money0 }}</td>
+        <td>{{ it.amount|money0 }}</td>
+        <td>{{ it.discount|money2 }}</td>
+        <td><b>{{ it.amount_after|money0 }}</b></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+    <tfoot>
+      <tr><td colspan="8" style="text-align:right"><b>Trước VAT:</b></td><td><b>{{ o.subtotal|money0 }}</b></td></tr>
+      <tr><td colspan="8" style="text-align:right"><b>VAT {{ o.vat_percent|money2 }}%:</b></td><td><b>{{ o.vat_amount|money0 }}</b></td></tr>
+      <tr><td colspan="8" style="text-align:right; color:#c61c2d"><b>TỔNG CỘNG:</b></td><td style="color:#c61c2d; font-size:16px"><b>{{ o.grand_total|money0 }}</b></td></tr>
+      <tr><td colspan="8" style="text-align:right">Đã thanh toán:</td><td>{{ o.paid_amount|money0 }}</td></tr>
+      <tr><td colspan="8" style="text-align:right">Còn lại:</td><td style="color:#c61c2d"><b>{{ ((o.grand_total or 0) - (o.paid_amount or 0))|money0 }}</b></td></tr>
+    </tfoot>
+  </table>
+  {% if o.notes %}
+    <div style="margin-top:10px"><b>Ghi chú:</b> {{ o.notes }}</div>
+  {% endif %}
+</div>
+
+<!-- FILE ĐÍNH KÈM -->
+<div class="card">
+  <h2>📎 File đính kèm</h2>
+  <div style="display:flex; flex-wrap:wrap; gap:8px">
+    {% for fld, lbl in [('order_file','Đơn hàng'),('invoice_file','Hóa đơn'),('delivery_file','Giao hàng'),('warehouse_file','Phiếu xuất kho'),('other_file','Khác')] %}
+      {% if o[fld] %}
+        <a class="btn btn-outline btn-sm" href="{{ url_for('order_file', oid=o.id, which=fld) }}">📥 {{ lbl }}</a>
+      {% endif %}
+    {% endfor %}
+    {% if not (o.order_file or o.invoice_file or o.delivery_file or o.warehouse_file or o.other_file) %}
+      <span style="color:#999">Không có file đính kèm.</span>
+    {% endif %}
+  </div>
+</div>
+
+<!-- COMMENTS -->
+<div class="card" id="comments">
+  <h2>💬 Nhận xét</h2>
+  {% if comments %}
+    {% for c in comments %}
+    <div style="border-left:3px solid #c61c2d; padding:6px 12px; margin-bottom:8px; background:#fffaf0">
+      <div style="font-size:12px; color:#6b4f1a">
+        <b>{{ c.full_name or c.username }}</b>
+        <span class="badge-org {% if c.organization=='KBC' %}badge-kbc{% else %}badge-hp89{% endif %}">{{ c.organization }}</span>
+        · {{ c.created_at|vndatetime }}
+        {% if current_user.is_admin or c.user_id == current_user.id %}
+          <form method="post" action="{{ url_for('delete_comment', cmt_id=c.id) }}" style="display:inline">
+            <button class="btn btn-sm btn-danger" style="padding:1px 6px">×</button>
+          </form>
+        {% endif %}
+      </div>
+      <div style="font-size:14px; margin-top:4px">{{ c.content }}</div>
+    </div>
+    {% endfor %}
+  {% else %}
+    <div style="color:#999">Chưa có nhận xét nào.</div>
+  {% endif %}
+  {% if current_user.has_cap('comment') %}
+    <form method="post" action="{{ url_for('add_comment', rtype='order', rid=o.id) }}" style="margin-top:12px">
+      <textarea name="content" rows="2" placeholder="Nhập nhận xét..." required></textarea>
+      <button class="btn btn-primary btn-sm" style="margin-top:6px">Gửi nhận xét</button>
+    </form>
+  {% endif %}
+</div>
+{% endblock %}

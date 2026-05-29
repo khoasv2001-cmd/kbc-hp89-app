@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>{% block title %}KBC-HP89{% endblock %}</title>
+  <link rel="manifest" href="{{ url_for('pwa_manifest') }}">
+  <meta name="theme-color" content="#c61c2d">
+  <link rel="icon" type="image/png" sizes="192x192" href="{{ url_for('static', filename='icon-192.png') }}">
+  <link rel="apple-touch-icon" href="{{ url_for('static', filename='icon-192.png') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <style>
+    :root {
+      --kbc-red: #c61c2d;
+      --kbc-red-dark: #9b1422;
+      --kbc-gold: #e8c87a;
+      --kbc-gold-dark: #c9a64a;
+    }
+    body { background: #f5f3ef; }
+    .topbar {
+      background: linear-gradient(135deg, var(--kbc-red) 0%, var(--kbc-red-dark) 100%);
+      color: #fff;
+      padding: 12px 20px;
+      display: flex; align-items: center; gap: 14px;
+      box-shadow: 0 2px 6px rgba(0,0,0,.15);
+      position: sticky; top: 0; z-index: 100;
+    }
+    .topbar .brand {
+      display: flex; align-items: center; gap: 10px;
+      font-weight: 700; font-size: 17px; color: #fff;
+      text-decoration: none;
+    }
+    .topbar .brand img {
+      height: 44px; width: 44px; object-fit: contain;
+      border-radius: 8px; display: block;
+      box-shadow: 0 1px 4px rgba(0,0,0,.2);
+    }
+    .topbar .brand-name { color: var(--kbc-gold); letter-spacing: .5px; }
+    .topbar .spacer { flex: 1; }
+    .topbar .user-info { font-size: 13px; opacity: .95; }
+    .topbar .user-info .badge-org {
+      background: var(--kbc-gold); color: var(--kbc-red-dark);
+      padding: 2px 8px; border-radius: 10px; font-weight: 700; margin-left: 4px;
+    }
+    .topbar a.btn-top {
+      color: #fff; text-decoration: none; padding: 6px 10px; border-radius: 6px;
+      background: rgba(255,255,255,.12);
+    }
+    .topbar a.btn-top:hover { background: rgba(255,255,255,.22); }
+    .bell { position: relative; }
+    .bell .count {
+      position: absolute; top: -4px; right: -4px;
+      background: var(--kbc-gold); color: var(--kbc-red-dark);
+      font-size: 11px; font-weight: 700;
+      padding: 1px 5px; border-radius: 8px;
+    }
+    .navbar {
+      background: #fff;
+      border-bottom: 2px solid var(--kbc-gold);
+      padding: 0 14px;
+      display: flex; flex-wrap: wrap; gap: 4px;
+      position: sticky; top: 60px; z-index: 90;
+      box-shadow: 0 1px 4px rgba(0,0,0,.05);
+    }
+    .navbar a {
+      color: #3a2c10; text-decoration: none; padding: 12px 16px;
+      font-weight: 600; font-size: 14px; border-bottom: 3px solid transparent;
+      transition: all .15s;
+    }
+    .navbar a:hover { color: var(--kbc-red); background: #fffaf0; }
+    .navbar a.active {
+      color: var(--kbc-red); border-bottom-color: var(--kbc-red);
+      background: #fffaf0;
+    }
+    .container { max-width: 1280px; margin: 22px auto; padding: 0 16px; }
+    .card {
+      background: #fff; border-radius: 10px; padding: 18px 20px;
+      box-shadow: 0 2px 10px rgba(0,0,0,.06); margin-bottom: 16px;
+    }
+    h1, h2, h3 { color: #3a1f1f; margin-top: 0; }
+    h1 { font-size: 22px; }
+    h2 { font-size: 18px; }
+    .btn {
+      display: inline-block; padding: 8px 14px; border-radius: 6px;
+      border: 1px solid transparent; cursor: pointer; font-weight: 600;
+      font-size: 14px; text-decoration: none;
+    }
+    .btn-primary { background: var(--kbc-red); color: #fff; }
+    .btn-primary:hover { background: var(--kbc-red-dark); }
+    .btn-gold { background: var(--kbc-gold); color: var(--kbc-red-dark); }
+    .btn-gold:hover { background: var(--kbc-gold-dark); color: #fff; }
+    .btn-secondary { background: #6c757d; color: #fff; }
+    .btn-success { background: #2e7d32; color: #fff; }
+    .btn-warning { background: #ed6c02; color: #fff; }
+    .btn-danger { background: #c62828; color: #fff; }
+    .btn-outline { background: #fff; color: var(--kbc-red); border-color: var(--kbc-red); }
+    .btn-sm { padding: 4px 10px; font-size: 12px; }
+    .flash {
+      padding: 10px 14px; border-radius: 6px; margin-bottom: 12px;
+      border: 1px solid; font-size: 14px;
+    }
+    .flash.success { background: #d4edda; border-color: #28a745; color: #155724; }
+    .flash.danger { background: #f8d7da; border-color: #dc3545; color: #721c24; }
+    .flash.warning { background: #fff3cd; border-color: #ffc107; color: #856404; }
+    .flash.info { background: #d1ecf1; border-color: #17a2b8; color: #0c5460; }
+    table { width: 100%; border-collapse: collapse; background: #fff; }
+    table th, table td { padding: 10px 12px; text-align: left; border-bottom: 1px solid #eee; font-size: 14px; }
+    table th { background: #faf6ee; color: #6b4f1a; font-weight: 700; }
+    table tr:hover { background: #fffaf0; }
+    .pill {
+      display: inline-block; padding: 3px 10px; border-radius: 12px;
+      font-size: 12px; font-weight: 700;
+    }
+    .pill-gray { background: #e9ecef; color: #495057; }
+    .pill-yellow { background: #fff3cd; color: #856404; }
+    .pill-blue { background: #cfe2ff; color: #084298; }
+    .pill-purple { background: #e7d4ff; color: #5a189a; }
+    .pill-green { background: #d1e7dd; color: #0f5132; }
+    .pill-red { background: #f8d7da; color: #842029; }
+    .badge-org {
+      display: inline-block; padding: 2px 8px; border-radius: 10px;
+      font-size: 11px; font-weight: 700; letter-spacing: .3px;
+    }
+    .badge-kbc { background: var(--kbc-red); color: #fff; }
+    .badge-hp89 { background: #1a4d8c; color: #fff; }
+    input[type=text], input[type=email], input[type=password], input[type=number],
+    input[type=date], input[type=tel], input[type=url], select, textarea {
+      width: 100%; padding: 8px 10px; border: 1px solid #d0d7de; border-radius: 5px;
+      font-size: 14px; box-sizing: border-box; font-family: inherit;
+    }
+    input:focus, select:focus, textarea:focus {
+      outline: none; border-color: var(--kbc-red); box-shadow: 0 0 0 2px rgba(198,28,45,.15);
+    }
+    label { font-weight: 600; color: #3a1f1f; font-size: 13px; }
+    .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+    .form-row.full { grid-template-columns: 1fr; }
+    .form-row.three { grid-template-columns: 1fr 1fr 1fr; }
+    @media (max-width: 720px) {
+      .form-row, .form-row.three { grid-template-columns: 1fr; }
+      .navbar { top: 0; position: relative; }
+      .topbar { position: relative; flex-wrap: wrap; }
+    }
+    .stat-grid {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 12px;
+    }
+    .stat-card {
+      background: #fff; border-left: 4px solid var(--kbc-red);
+      padding: 14px 16px; border-radius: 8px;
+      box-shadow: 0 1px 4px rgba(0,0,0,.06);
+    }
+    .stat-card .stat-num { font-size: 26px; font-weight: 700; color: var(--kbc-red); }
+    .stat-card .stat-lbl { font-size: 12px; color: #6b4f1a; margin-bottom: 4px; }
+    .stat-card.gold { border-left-color: var(--kbc-gold-dark); }
+    .stat-card.gold .stat-num { color: var(--kbc-gold-dark); }
+    .stat-card.green { border-left-color: #2e7d32; }
+    .stat-card.green .stat-num { color: #2e7d32; }
+    .stat-card.blue { border-left-color: #1565c0; }
+    .stat-card.blue .stat-num { color: #1565c0; }
+    .stat-card.purple { border-left-color: #6a1b9a; }
+    .stat-card.purple .stat-num { color: #6a1b9a; }
+    .stat-card.gray { border-left-color: #6c757d; }
+    .stat-card.gray .stat-num { color: #6c757d; }
+  </style>
+</head>
+<body>
+  {% if current_user.is_authenticated %}
+  <div class="topbar">
+    <a class="brand" href="{{ url_for('dashboard') }}">
+      <img src="{{ url_for('static', filename='kbc-logo.png') }}" alt="KBC">
+      <span class="brand-name">KBC&nbsp;–&nbsp;HP89</span>
+    </a>
+    <div class="spacer"></div>
+    <span class="user-info">
+      {{ current_user.full_name or current_user.username }}
+      <span class="badge-org {% if current_user.is_kbc %}badge-kbc{% else %}badge-hp89{% endif %}">{{ current_user.org_label }}</span>
+    </span>
+    <a class="btn-top bell" href="{{ url_for('notifications_list') }}" title="Thông báo">
+      🔔
+      {% if unread_notif_count and unread_notif_count > 0 %}
+        <span class="count">{{ unread_notif_count }}</span>
+      {% endif %}
+    </a>
+    <a class="btn-top" href="{{ url_for('change_password') }}" title="Đổi mật khẩu">🔑</a>
+    <a class="btn-top" href="{{ url_for('logout') }}">Đăng xuất</a>
+  </div>
+  <div class="navbar">
+    <a href="{{ url_for('dashboard') }}" class="{% if request.endpoint=='dashboard' %}active{% endif %}">📊 Tổng Quan</a>
+    <a href="{{ url_for('orders_list') }}" class="{% if request.endpoint and request.endpoint.startswith('order') %}active{% endif %}">📦 Đặt Hàng</a>
+    <a href="{{ url_for('contracts_list') }}" class="{% if request.endpoint and request.endpoint.startswith('contract') %}active{% endif %}">📄 Hợp Đồng</a>
+    <a href="{{ url_for('legal_list') }}" class="{% if request.endpoint and request.endpoint.startswith('legal') %}active{% endif %}">⚖️ Pháp Lý</a>
+    <a href="{{ url_for('media_list') }}" class="{% if request.endpoint and request.endpoint.startswith('media') %}active{% endif %}">📢 Truyền Thông</a>
+    <a href="{{ url_for('reports') }}" class="{% if request.endpoint=='reports' %}active{% endif %}">📥 Tải Báo Cáo</a>
+    {% if current_user.has_cap('manage_products') %}
+      <a href="{{ url_for('products_list') }}" class="{% if request.endpoint and request.endpoint.startswith('product') %}active{% endif %}">🛍️ Sản Phẩm</a>
+    {% endif %}
+    {% if current_user.can_manage_users %}
+      <a href="{{ url_for('users_list') }}" class="{% if request.endpoint and request.endpoint.startswith('user') %}active{% endif %}">👥 Người Dùng</a>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  <div class="container">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for cat, msg in messages %}
+          <div class="flash {{ cat }}">{{ msg }}</div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+    {% block content %}{% endblock %}
+  </div>
+
+  {% if current_user.is_authenticated %}
+  <audio id="kbc-notify-sound" src="{{ url_for('static', filename='kbc-notify.mp3') }}" preload="auto"></audio>
+  <script>
+    // Service worker + Web Push (giống app gốc)
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js').then(reg => {
+        {% if vapid_public_key %}
+        // Đăng ký push nếu có VAPID
+        reg.pushManager.getSubscription().then(sub => {
+          if (sub) return;
+          const key = '{{ vapid_public_key }}';
+          const padding = '='.repeat((4 - key.length % 4) % 4);
+          const b64 = (key + padding).replace(/-/g, '+').replace(/_/g, '/');
+          const raw = atob(b64);
+          const arr = new Uint8Array(raw.length);
+          for (let i=0; i<raw.length; i++) arr[i] = raw.charCodeAt(i);
+          reg.pushManager.subscribe({userVisibleOnly: true, applicationServerKey: arr})
+            .then(s => fetch('/push/subscribe', {
+              method: 'POST',
+              headers: {'Content-Type':'application/json'},
+              body: JSON.stringify({subscription: s.toJSON()})
+            }));
+        });
+        {% endif %}
+      });
+    }
+    // Phát chuông khi có thông báo mới (poll mỗi 30s)
+    let lastUnread = {{ unread_notif_count or 0 }};
+    setInterval(() => {
+      fetch('/notifications/count', {credentials:'same-origin'}).catch(()=>{});
+    }, 30000);
+  </script>
+  {% endif %}
+</body>
+</html>
