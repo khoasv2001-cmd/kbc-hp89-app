@@ -50,6 +50,9 @@ DB_PATH = os.path.join(DATA_DIR, 'data.db')
 for d in (DATA_DIR, UPLOAD_DIR, ORDER_DIR, CONTRACT_DIR, ATTACH_DIR, LEGAL_DIR, MEDIA_DIR):
     os.makedirs(d, exist_ok=True)
 
+print(f'>>> DATABASE PATH: {DB_PATH}', flush=True)
+print(f'>>> DATA_DIR env: {os.environ.get("DATA_DIR", "(not set — using BASE_DIR)")}', flush=True)
+
 ALLOWED_EXT = {'pdf', 'doc', 'docx', 'xls', 'xlsx', 'png', 'jpg', 'jpeg', 'zip', 'rar', 'txt', 'mp4', 'mp3'}
 MAX_UPLOAD_MB = 100
 
