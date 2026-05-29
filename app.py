@@ -2885,6 +2885,25 @@ def admin_backup():
     return send_file(mem, as_attachment=True, download_name=name, mimetype='application/zip')
 
 
+@app.route('/admin/db-status')
+@login_required
+@admin_required
+def admin_db_status():
+    disk_ok = os.path.exists('/var/data')
+    db_exists = os.path.exists(DB_PATH)
+    user_count = get_db().execute('SELECT COUNT(*) c FROM users').fetchone()['c']
+    return f"""<pre style="font-family:monospace; padding:20px; font-size:14px">
+=== DATABASE STATUS ===
+DATA_DIR env var : {os.environ.get('DATA_DIR', '(not set)')}
+DB_PATH          : {DB_PATH}
+DB file exists   : {db_exists}
+/var/data exists : {disk_ok}
+Users in DB      : {user_count}
+
+{'OK - database tren persistent disk' if '/var/data' in DB_PATH else 'CANH BAO: DB dang o thu muc tam, se mat khi redeploy!'}
+</pre>"""
+
+
 # ---------- CLI ----------
 @app.cli.command('init-db')
 def cli_init_db():
