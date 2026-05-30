@@ -50,6 +50,9 @@ DB_PATH = os.path.join(DATA_DIR, 'data.db')
 for d in (DATA_DIR, UPLOAD_DIR, ORDER_DIR, CONTRACT_DIR, ATTACH_DIR, LEGAL_DIR, MEDIA_DIR):
     os.makedirs(d, exist_ok=True)
 
+print(f'>>> DATABASE PATH: {DB_PATH}', flush=True)
+print(f'>>> DATA_DIR env: {os.environ.get("DATA_DIR", "(not set — using BASE_DIR)")}', flush=True)
+
 ALLOWED_EXT = {'pdf', 'doc', 'docx', 'xls', 'xlsx', 'png', 'jpg', 'jpeg', 'zip', 'rar', 'txt', 'mp4', 'mp3'}
 MAX_UPLOAD_MB = 100
 
@@ -96,6 +99,20 @@ def init_db():
         permissions TEXT,
         created_at TEXT NOT NULL
     );
+
+    -- Thông tin đơn vị xuất hóa đơn (lưu sẵn để tái sử dụng)
+    CREATE TABLE IF NOT EXISTS invoice_entities (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        company_name TEXT NOT NULL,
+        tax_code TEXT,
+        address TEXT,
+        email TEXT,
+        phone TEXT,
+        created_by INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY(created_by) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_invoice_entities_creator ON invoice_entities(created_by);
 
     -- Danh mục sản phẩm
     CREATE TABLE IF NOT EXISTS products (
@@ -1219,30 +1236,55 @@ def _compute_order_totals(items, vat_percent):
 @login_required
 def orders_list():
     db = get_db()
-    ids = list_accessible_ids('order', current_user)
     status_filter = request.args.get('status', '').strip()
-    where = ''
-    params = []
-    if status_filter and status_filter in ORDER_WORKFLOW:
-        where = ' WHERE o.workflow_status=?'
-        params.append(status_filter)
-    if ids is None:
-        base = ('''SELECT o.*, u.username owner_user, u.full_name owner_name, u.organization owner_org
-                   FROM orders o JOIN users u ON o.owner_id=u.id''' + where +
-                ' ORDER BY o.order_date DESC, o.id DESC')
-        rows = db.execute(base, params).fetchall()
-    elif ids:
-        placeholder = ','.join('?' * len(ids))
-        if where:
-            full_where = where + f' AND o.id IN ({placeholder})'
-        else:
-            full_where = f' WHERE o.id IN ({placeholder})'
-        q = ('''SELECT o.*, u.username owner_user, u.full_name owner_name, u.organization owner_org
-                FROM orders o JOIN users u ON o.owner_id=u.id''' + full_where +
-             ' ORDER BY o.order_date DESC, o.id DESC')
-        rows = db.execute(q, params + list(ids)).fetchall()
+    base_q = '''SELECT o.*, u.username owner_user, u.full_name owner_name, u.organization owner_org
+                FROM orders o JOIN users u ON o.owner_id=u.id'''
+
+    if current_user.can_see_all:
+        # Admin / view_all: thấy tất cả
+        conditions, params = [], []
+        if status_filter and status_filter in ORDER_WORKFLOW:
+            conditions.append('o.workflow_status=?')
+            params.append(status_filter)
+        where = (' WHERE ' + ' AND '.join(conditions)) if conditions else ''
+        rows = db.execute(base_q + where + ' ORDER BY o.order_date DESC, o.id DESC', params).fetchall()
+
+    elif current_user.is_kbc:
+        # KBC user: chỉ thấy đơn từ approved_hp89 trở đi (HP89 đã duyệt)
+        kbc_statuses = ('approved_hp89', 'received_kbc', 'delivered_kbc')
+        conditions = ['o.workflow_status IN ({})'.format(','.join('?' * len(kbc_statuses)))]
+        params = list(kbc_statuses)
+        if status_filter and status_filter in kbc_statuses:
+            conditions = ['o.workflow_status=?']
+            params = [status_filter]
+        elif status_filter and status_filter in ORDER_WORKFLOW:
+            # nếu filter không phải KBC statuses thì không trả kết quả
+            conditions.append('1=0')
+        where = ' WHERE ' + ' AND '.join(conditions)
+        rows = db.execute(base_q + where + ' ORDER BY o.order_date DESC, o.id DESC', params).fetchall()
+
     else:
-        rows = []
+        # HP89 user: chỉ thấy đơn mình sở hữu + được chia sẻ
+        ids = list_accessible_ids('order', current_user)
+        if ids is None:
+            conditions, params = [], []
+            if status_filter and status_filter in ORDER_WORKFLOW:
+                conditions.append('o.workflow_status=?')
+                params.append(status_filter)
+            where = (' WHERE ' + ' AND '.join(conditions)) if conditions else ''
+            rows = db.execute(base_q + where + ' ORDER BY o.order_date DESC, o.id DESC', params).fetchall()
+        elif ids:
+            placeholder = ','.join('?' * len(ids))
+            conditions = [f'o.id IN ({placeholder})']
+            params = list(ids)
+            if status_filter and status_filter in ORDER_WORKFLOW:
+                conditions.append('o.workflow_status=?')
+                params.append(status_filter)
+            where = ' WHERE ' + ' AND '.join(conditions)
+            rows = db.execute(base_q + where + ' ORDER BY o.order_date DESC, o.id DESC', params).fetchall()
+        else:
+            rows = []
+
     return render_template('orders_list.html', orders=rows, current_status=status_filter)
 
 
@@ -1254,7 +1296,9 @@ def order_new():
     if request.method == 'POST':
         return _save_order(None)
     products = db.execute('SELECT * FROM products WHERE active=1 ORDER BY name').fetchall()
-    return render_template('order_form.html', order=None, items=[], products=products)
+    invoice_entities = db.execute('SELECT * FROM invoice_entities ORDER BY company_name').fetchall()
+    return render_template('order_form.html', order=None, items=[], products=products,
+                           invoice_entities=invoice_entities)
 
 
 def _save_order(order_id):
@@ -1297,8 +1341,7 @@ def _save_order(order_id):
               request.form.get('signer_deliverer', '').strip(),
               subtotal, vat_percent, vat_amount, grand_total,
               request.form.get('notes', '').strip(),
-              paid_amount,
-              request.form.get('referrer', '').strip())
+              paid_amount)
 
     if order_id is None:
         cur = db.execute('''INSERT INTO orders
@@ -1306,10 +1349,10 @@ def _save_order(order_id):
              invoice_company, invoice_tax_code, invoice_address, invoice_email, invoice_phone,
              payment_method, bank_account, signer_creator, signer_approver, signer_deliverer,
              subtotal, vat_percent, vat_amount, grand_total, notes,
-             paid_amount, referrer,
+             paid_amount,
              order_file, invoice_file, delivery_file, other_file, warehouse_file,
              workflow_status, owner_id, created_at, updated_at)
-            VALUES (?,?,?,?,?, ?,?,?,?,?, ?,?,?,?,?, ?,?,?,?,?, ?,?, ?,?,?,?,?, ?,?,?,?)''',
+            VALUES (?,?,?,?,?, ?,?,?,?,?, ?,?,?,?,?, ?,?,?,?,?, ?, ?,?,?,?,?, ?,?,?,?)''',
             fields + (of, inv, dlv, oth, wh, 'draft', current_user.id, now, now))
         order_id = cur.lastrowid
     else:
@@ -1325,7 +1368,7 @@ def _save_order(order_id):
             invoice_company=?, invoice_tax_code=?, invoice_address=?, invoice_email=?, invoice_phone=?,
             payment_method=?, bank_account=?, signer_creator=?, signer_approver=?, signer_deliverer=?,
             subtotal=?, vat_percent=?, vat_amount=?, grand_total=?, notes=?,
-            paid_amount=?, referrer=?,
+            paid_amount=?,
             order_file=?, invoice_file=?, delivery_file=?, other_file=?, warehouse_file=?, updated_at=?
             WHERE id=?''',
             fields + (of, inv, dlv, oth, wh, now, order_id))
@@ -1353,7 +1396,14 @@ def _save_order(order_id):
 @app.route('/orders/<int:oid>')
 @login_required
 def order_view(oid):
-    if not can_view('order', oid, current_user):
+    # KBC users can view orders in approved/received/delivered status without explicit share
+    if current_user.is_kbc and not current_user.can_see_all:
+        o_check = get_db().execute('SELECT workflow_status FROM orders WHERE id=?', (oid,)).fetchone()
+        if o_check and o_check['workflow_status'] not in ('approved_hp89', 'received_kbc', 'delivered_kbc'):
+            abort(403)
+        elif not o_check:
+            abort(404)
+    elif not can_view('order', oid, current_user):
         abort(403)
     db = get_db()
     o = db.execute('''SELECT o.*, u.username owner_user, u.full_name owner_name, u.organization owner_org,
@@ -1390,7 +1440,9 @@ def order_edit(oid):
         return _save_order(oid)
     items = db.execute('SELECT * FROM order_items WHERE order_id=? ORDER BY sort_order, id', (oid,)).fetchall()
     products = db.execute('SELECT * FROM products WHERE active=1 ORDER BY name').fetchall()
-    return render_template('order_form.html', order=o, items=items, products=products)
+    invoice_entities = db.execute('SELECT * FROM invoice_entities ORDER BY company_name').fetchall()
+    return render_template('order_form.html', order=o, items=items, products=products,
+                           invoice_entities=invoice_entities)
 
 
 @app.route('/orders/<int:oid>/delete', methods=['POST'])
@@ -2439,6 +2491,36 @@ def api_products():
 
 
 # ============================================================
+# ---------- INVOICE ENTITIES (Thông tin đơn vị xuất HĐ) ----------
+# ============================================================
+@app.route('/api/invoice-entities', methods=['GET', 'POST'])
+@login_required
+def api_invoice_entities():
+    db = get_db()
+    if request.method == 'POST':
+        data = request.get_json() or {}
+        company_name = (data.get('company_name') or '').strip()
+        if not company_name:
+            return jsonify({'error': 'Tên đơn vị không được trống'}), 400
+        now = datetime.now().isoformat(timespec='seconds')
+        cur = db.execute(
+            'INSERT INTO invoice_entities(company_name, tax_code, address, email, phone, created_by, created_at) VALUES (?,?,?,?,?,?,?)',
+            (company_name, (data.get('tax_code') or '').strip(),
+             (data.get('address') or '').strip(),
+             (data.get('email') or '').strip(),
+             (data.get('phone') or '').strip(),
+             current_user.id, now))
+        db.commit()
+        return jsonify({'id': cur.lastrowid, 'company_name': company_name,
+                        'tax_code': data.get('tax_code', ''),
+                        'address': data.get('address', ''),
+                        'email': data.get('email', ''),
+                        'phone': data.get('phone', '')})
+    rows = db.execute('SELECT * FROM invoice_entities ORDER BY company_name').fetchall()
+    return jsonify([dict(r) for r in rows])
+
+
+# ============================================================
 # ---------- NOTIFICATIONS ----------
 # ============================================================
 @app.route('/notifications')
@@ -2943,6 +3025,25 @@ def admin_backup():
     mem.seek(0)
     name = 'backup_kbc_hp89_' + datetime.now().strftime('%Y%m%d_%H%M%S') + '.zip'
     return send_file(mem, as_attachment=True, download_name=name, mimetype='application/zip')
+
+
+@app.route('/admin/db-status')
+@login_required
+@admin_required
+def admin_db_status():
+    disk_ok = os.path.exists('/var/data')
+    db_exists = os.path.exists(DB_PATH)
+    user_count = get_db().execute('SELECT COUNT(*) c FROM users').fetchone()['c']
+    return f"""<pre style="font-family:monospace; padding:20px; font-size:14px">
+=== DATABASE STATUS ===
+DATA_DIR env var : {os.environ.get('DATA_DIR', '(not set)')}
+DB_PATH          : {DB_PATH}
+DB file exists   : {db_exists}
+/var/data exists : {disk_ok}
+Users in DB      : {user_count}
+
+{'OK - database tren persistent disk' if '/var/data' in DB_PATH else 'CANH BAO: DB dang o thu muc tam, se mat khi redeploy!'}
+</pre>"""
 
 
 # ---------- CLI ----------

@@ -34,6 +34,7 @@
     .topbar .brand img {
       height: 46px; width: 46px; object-fit: contain;
       display: block; border-radius: 8px;
+      box-shadow: 0 1px 4px rgba(0,0,0,.25);
     }
     .topbar .brand-name { color: var(--kbc-gold); letter-spacing: .5px; }
     .topbar .spacer { flex: 1; }
@@ -58,14 +59,19 @@
       background: #fff;
       border-bottom: 2px solid var(--kbc-gold);
       padding: 0 14px;
-      display: flex; flex-wrap: wrap; gap: 4px;
+      display: flex; flex-wrap: nowrap; gap: 0;
+      overflow-x: auto; -webkit-overflow-scrolling: touch;
       position: sticky; top: 60px; z-index: 90;
       box-shadow: 0 1px 4px rgba(0,0,0,.05);
+      scrollbar-width: thin; scrollbar-color: var(--kbc-gold) transparent;
     }
+    .navbar::-webkit-scrollbar { height: 3px; }
+    .navbar::-webkit-scrollbar-thumb { background: var(--kbc-gold); border-radius: 3px; }
     .navbar a {
-      color: #3a2c10; text-decoration: none; padding: 12px 16px;
-      font-weight: 600; font-size: 14px; border-bottom: 3px solid transparent;
-      transition: all .15s;
+      color: #3a2c10; text-decoration: none; padding: 12px 18px;
+      font-weight: 700; font-size: 13px; border-bottom: 3px solid transparent;
+      transition: all .15s; white-space: nowrap; flex-shrink: 0;
+      letter-spacing: .5px;
     }
     .navbar a:hover { color: var(--kbc-red); background: #fffaf0; }
     .navbar a.active {
@@ -137,8 +143,8 @@
     .form-row.three { grid-template-columns: 1fr 1fr 1fr; }
     @media (max-width: 720px) {
       .form-row, .form-row.three { grid-template-columns: 1fr; }
-      .navbar { top: 0; position: relative; }
-      .topbar { position: relative; flex-wrap: wrap; }
+      .navbar { top: 0; position: sticky; }
+      .topbar { position: sticky; top: 0; flex-wrap: wrap; }
     }
     .stat-grid {
       display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
@@ -184,20 +190,20 @@
     <a class="btn-top" href="{{ url_for('change_password') }}" title="Đổi mật khẩu">🔑</a>
     <a class="btn-top" href="{{ url_for('logout') }}">Đăng xuất</a>
   </div>
-  <div class="navbar">
-    <a href="{{ url_for('dashboard') }}" class="{% if request.endpoint=='dashboard' %}active{% endif %}">📊 Tổng Quan</a>
-    <a href="{{ url_for('orders_list') }}" class="{% if request.endpoint and request.endpoint.startswith('order') %}active{% endif %}">📦 Đặt Hàng</a>
-    <a href="{{ url_for('contracts_list') }}" class="{% if request.endpoint and request.endpoint.startswith('contract') %}active{% endif %}">📄 Hợp Đồng</a>
-    <a href="{{ url_for('legal_list') }}" class="{% if request.endpoint and request.endpoint.startswith('legal') %}active{% endif %}">⚖️ Pháp Lý</a>
-    <a href="{{ url_for('media_list') }}" class="{% if request.endpoint and request.endpoint.startswith('media') %}active{% endif %}">📢 Truyền Thông</a>
-    <a href="{{ url_for('reports') }}" class="{% if request.endpoint=='reports' %}active{% endif %}">📥 Tải Báo Cáo</a>
+  <nav class="navbar">
+    <a href="{{ url_for('dashboard') }}" class="{% if request.endpoint=='dashboard' %}active{% endif %}">TỔNG QUAN</a>
+    <a href="{{ url_for('orders_list') }}" class="{% if request.endpoint and request.endpoint.startswith('order') %}active{% endif %}">ĐẶT HÀNG</a>
+    <a href="{{ url_for('contracts_list') }}" class="{% if request.endpoint and request.endpoint.startswith('contract') %}active{% endif %}">HỢP ĐỒNG</a>
+    <a href="{{ url_for('legal_list') }}" class="{% if request.endpoint and request.endpoint.startswith('legal') %}active{% endif %}">PHÁP LÝ</a>
+    <a href="{{ url_for('media_list') }}" class="{% if request.endpoint and request.endpoint.startswith('media') %}active{% endif %}">TRUYỀN THÔNG</a>
+    <a href="{{ url_for('reports') }}" class="{% if request.endpoint=='reports' %}active{% endif %}">TẢI BÁO CÁO</a>
     {% if current_user.has_cap('manage_products') %}
-      <a href="{{ url_for('products_list') }}" class="{% if request.endpoint and request.endpoint.startswith('product') %}active{% endif %}">🛍️ Sản Phẩm</a>
+      <a href="{{ url_for('products_list') }}" class="{% if request.endpoint and request.endpoint.startswith('product') %}active{% endif %}">SẢN PHẨM</a>
     {% endif %}
     {% if current_user.can_manage_users %}
-      <a href="{{ url_for('users_list') }}" class="{% if request.endpoint and request.endpoint.startswith('user') %}active{% endif %}">👥 Người Dùng</a>
+      <a href="{{ url_for('users_list') }}" class="{% if request.endpoint and request.endpoint.startswith('user') %}active{% endif %}">NGƯỜI DÙNG</a>
     {% endif %}
-  </div>
+  </nav>
   {% endif %}
 
   <div class="container">
