@@ -64,6 +64,18 @@ VAPID_PUBLIC_KEY = os.environ.get('VAPID_PUBLIC_KEY', '')
 VAPID_PRIVATE_KEY = os.environ.get('VAPID_PRIVATE_KEY', '')
 VAPID_CLAIM_EMAIL = os.environ.get('VAPID_CLAIM_EMAIL', 'mailto:admin@example.com')
 
+# URL tuyệt đối của app — dùng để chèn vào email (Render set RENDER_EXTERNAL_URL tự động).
+APP_BASE_URL = (os.environ.get('APP_BASE_URL')
+                or os.environ.get('RENDER_EXTERNAL_URL', '')).rstrip('/')
+
+# SMTP gửi email — bỏ qua êm nếu chưa cấu hình
+SMTP_HOST = os.environ.get('SMTP_HOST')
+SMTP_PORT = int(os.environ.get('SMTP_PORT', '587'))
+SMTP_USER = os.environ.get('SMTP_USER')
+SMTP_PASS = os.environ.get('SMTP_PASS')
+SMTP_FROM = os.environ.get('SMTP_FROM', SMTP_USER or 'noreply@kbc-hp89.vn')
+SMTP_FROM_NAME = os.environ.get('SMTP_FROM_NAME', 'KBC-HP89')
+
 login_manager = LoginManager(app)
 login_manager.login_view = 'login'
 login_manager.login_message = 'Vui lòng đăng nhập để tiếp tục.'
@@ -804,6 +816,116 @@ def notify_user(user_id, message, link=None):
     create_notification(user_id, message, link)
 
 
+# ---------- Email helpers ----------
+def absolute_link(relative):
+    """Trả link tuyệt đối cho email (cần để bấm được từ inbox)."""
+    if not relative:
+        return ''
+    if relative.startswith('http'):
+        return relative
+    if APP_BASE_URL:
+        return APP_BASE_URL + relative
+    return relative
+
+
+def send_simple_email(to_emails, subject, body):
+    """Gửi email text đơn giản. Trả (ok, msg). Bỏ qua nếu chưa cấu hình SMTP."""
+    recipients = [e for e in (to_emails or []) if e and '@' in (e or '')]
+    if not (SMTP_HOST and SMTP_USER and SMTP_PASS):
+        return False, 'SMTP chưa cấu hình'
+    if not recipients:
+        return False, 'Không có email người nhận'
+    msg = MIMEMultipart()
+    msg['From'] = f'{SMTP_FROM_NAME} <{SMTP_FROM}>'
+    msg['To'] = ', '.join(recipients)
+    msg['Subject'] = subject
+    msg.attach(MIMEText(body, 'plain', 'utf-8'))
+    try:
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=15) as s:
+            s.starttls()
+            s.login(SMTP_USER, SMTP_PASS)
+            s.sendmail(SMTP_FROM, recipients, msg.as_string())
+    except Exception as e:
+        print(f'[EMAIL ERROR] {e}')
+        return False, f'Lỗi gửi email: {e}'
+    return True, 'OK'
+
+
+def send_email_to_user(user_id, subject, body):
+    """Tra cứu email của user rồi gửi. Bỏ qua nếu user không có email."""
+    if not user_id:
+        return False, 'Không có user_id'
+    row = get_db().execute('SELECT email, full_name, username FROM users WHERE id=?', (user_id,)).fetchone()
+    if not row:
+        return False, 'User không tồn tại'
+    if not row['email']:
+        return False, f'User "{row["full_name"] or row["username"]}" chưa có email'
+    return send_simple_email([row['email']], subject, body)
+
+
+def notify_and_email_user(user_id, in_app_msg, link, email_subject, email_body):
+    """Vừa tạo notification in-app vừa gửi email cho 1 user."""
+    if not user_id:
+        return
+    create_notification(user_id, in_app_msg, link)
+    if email_subject:
+        send_email_to_user(user_id, email_subject, email_body)
+
+
+def notify_and_email_users(user_rows, in_app_msg, link, email_subject, email_body, exclude_ids=None):
+    """Gửi notification + email cho danh sách user rows."""
+    exclude = set(exclude_ids or [])
+    sent_emails = []
+    for r in user_rows:
+        if r['id'] in exclude:
+            continue
+        create_notification(r['id'], in_app_msg, link)
+        if email_subject and r['email']:
+            ok, _ = send_simple_email([r['email']], email_subject, email_body)
+            if ok:
+                sent_emails.append(r['email'])
+    return sent_emails
+
+
+def find_user_by_display_name(name):
+    """Tra cứu user theo full_name hoặc username (dùng cho signer_approver)."""
+    if not name:
+        return None
+    name = name.strip()
+    return get_db().execute(
+        'SELECT * FROM users WHERE full_name=? OR username=? LIMIT 1',
+        (name, name)
+    ).fetchone()
+
+
+def _get_kbc_receivers():
+    """Nhân sự KBC có quyền nhận đơn (receive_kbc_order)."""
+    rows = get_db().execute(
+        "SELECT * FROM users WHERE organization='KBC' ORDER BY full_name, username"
+    ).fetchall()
+    return [r for r in rows if User(r).has_cap('receive_kbc_order')]
+
+
+def _get_kbc_leaders():
+    """Lãnh đạo KBC: user thuộc KBC có view_all hoặc role giám đốc/phó GĐ/admin."""
+    rows = get_db().execute(
+        "SELECT * FROM users WHERE organization='KBC' "
+        "AND (role IN ('admin','director','deputy_director') OR permissions LIKE '%view_all%') "
+        "ORDER BY full_name, username"
+    ).fetchall()
+    # Loại trùng + dedup theo id (LIKE có thể match nhầm)
+    seen = set()
+    result = []
+    for r in rows:
+        if r['id'] in seen:
+            continue
+        u = User(r)
+        if u.is_admin or u.has_cap('view_all') or u.role in ('director', 'deputy_director'):
+            seen.add(r['id'])
+            result.append(r)
+    return result
+
+
 @app.context_processor
 def inject_notifications():
     if not current_user.is_authenticated:
@@ -1396,6 +1518,18 @@ def _save_order(order_id):
                          f'[ĐƠN HÀNG MỚI] {code or customer_name} đã được HP89 tạo (nháp)',
                          link, exclude_ids=[current_user.id])
     db.commit()
+
+    # Nếu user bấm "Lưu & Gửi Lãnh đạo HP89 duyệt" thì transition ngay
+    action = request.form.get('action', 'save')
+    if action == 'save_and_submit':
+        # Chỉ submit được khi đang ở trạng thái draft (mới tạo hoặc edit nháp)
+        ok, msg = _do_submit_order(order_id)
+        if ok:
+            flash('Đã lưu & GỬI Lãnh đạo HP89 duyệt — email đã được gửi', 'success')
+        else:
+            flash(f'Đã lưu đơn nhưng không gửi được: {msg}', 'warning')
+        return redirect(url_for('order_view', oid=order_id))
+
     flash('Đã lưu đơn hàng', 'success')
     return redirect(url_for('order_view', oid=order_id))
 
@@ -1502,25 +1636,73 @@ def _order_or_404(oid):
 
 @app.route('/orders/<int:oid>/submit', methods=['POST'])
 @login_required
-def order_submit(oid):
-    """HP89 gửi đơn nháp đi để lãnh đạo HP89 duyệt."""
-    o = _order_or_404(oid)
-    if o['workflow_status'] != 'draft':
-        flash('Đơn không ở trạng thái Nháp, không thể gửi duyệt', 'warning')
-        return redirect(url_for('order_view', oid=oid))
-    if not (current_user.is_admin or o['owner_id'] == current_user.id):
-        abort(403)
+def _do_submit_order(oid):
+    """Logic chuyển đơn từ Nháp -> Chờ HP89 duyệt + gửi notification + email."""
     db = get_db()
+    o = db.execute('SELECT * FROM orders WHERE id=?', (oid,)).fetchone()
+    if not o:
+        return False, 'Đơn không tồn tại'
+    if o['workflow_status'] != 'draft':
+        return False, 'Đơn không ở trạng thái Nháp'
     now = datetime.now().isoformat(timespec='seconds')
     db.execute('UPDATE orders SET workflow_status=?, submitted_at=?, updated_at=? WHERE id=?',
                ('pending_hp89', now, now, oid))
     link = url_for('order_view', oid=oid)
-    # Báo cho lãnh đạo HP89 (có cap approve_hp89_order)
+    abs_link = absolute_link(link)
+    code_or_name = o["code"] or o["customer_name"]
+    creator_name = current_user.full_name or current_user.username
+
+    # 1) Email + thông báo cho người duyệt được chọn cụ thể
+    approver_row = find_user_by_display_name(o['signer_approver'])
+    if approver_row:
+        subject = f'[KBC-HP89] Đơn hàng "{code_or_name}" cần bạn duyệt'
+        body = (
+            f'Kính gửi {approver_row["full_name"] or approver_row["username"]},\n\n'
+            f'Bạn được chọn làm người duyệt cho đơn hàng:\n'
+            f'  • Mã đơn: {o["code"] or "(chưa có)"}\n'
+            f'  • Nơi nhận: {o["customer_name"]}\n'
+            f'  • Tổng cộng: {money0_fmt(o["grand_total"])} đ\n'
+            f'  • Người tạo: {creator_name}\n\n'
+            f'Vui lòng đăng nhập hệ thống để duyệt: {abs_link}\n\n'
+            f'Trân trọng,\nKBC-HP89'
+        )
+        notify_and_email_user(
+            approver_row['id'],
+            f'[CHỜ BẠN DUYỆT] Đơn "{code_or_name}" cần duyệt',
+            link, subject, body
+        )
+
+    # 2) Thông báo (không email) cho các lãnh đạo HP89 khác có cap approve_hp89_order
+    exclude = [current_user.id]
+    if approver_row:
+        exclude.append(approver_row['id'])
     notify_cap_users('approve_hp89_order',
-                     f'[CHỜ DUYỆT] Đơn hàng "{o["code"] or o["customer_name"]}" cần Lãnh đạo HP89 duyệt',
-                     link, exclude_ids=[current_user.id], organization='HP89')
+                     f'[CHỜ DUYỆT] Đơn "{code_or_name}" cần Lãnh đạo HP89 duyệt',
+                     link, exclude_ids=exclude, organization='HP89')
     db.commit()
-    flash('Đã gửi đơn cho Lãnh đạo HP89 duyệt', 'success')
+    return True, 'OK'
+
+
+def money0_fmt(v):
+    """Format tiền VN dùng cho email (không dùng filter Jinja)."""
+    try:
+        return f'{float(v or 0):,.0f}'.replace(',', '.')
+    except (ValueError, TypeError):
+        return str(v)
+
+
+@app.route('/orders/<int:oid>/submit', methods=['POST'])
+@login_required
+def order_submit(oid):
+    """HP89 gửi đơn nháp đi để lãnh đạo HP89 duyệt."""
+    o = _order_or_404(oid)
+    if not (current_user.is_admin or o['owner_id'] == current_user.id):
+        abort(403)
+    ok, msg = _do_submit_order(oid)
+    if ok:
+        flash('Đã gửi đơn cho Lãnh đạo HP89 duyệt — email đã được gửi đến người duyệt', 'success')
+    else:
+        flash(msg, 'warning')
     return redirect(url_for('order_view', oid=oid))
 
 
@@ -1528,7 +1710,7 @@ def order_submit(oid):
 @login_required
 @require_cap('approve_hp89_order')
 def order_approve_hp89(oid):
-    """Lãnh đạo HP89 duyệt -> đẩy sang KBC."""
+    """Lãnh đạo HP89 duyệt -> đẩy sang KBC. Thông báo + email cho KBC."""
     o = _order_or_404(oid)
     if o['workflow_status'] != 'pending_hp89':
         flash('Đơn không ở trạng thái Chờ HP89 duyệt', 'warning')
@@ -1539,14 +1721,54 @@ def order_approve_hp89(oid):
                   WHERE id=?''',
                ('approved_hp89', current_user.id, now, now, oid))
     link = url_for('order_view', oid=oid)
-    # Báo cho người tạo
-    notify_user(o['owner_id'], f'Lãnh đạo HP89 đã DUYỆT đơn "{o["code"] or o["customer_name"]}"', link)
-    # Báo cho nhân viên KBC có quyền nhận đơn
-    notify_cap_users('receive_kbc_order',
-                     f'[KBC NHẬN ĐƠN] HP89 đã duyệt đơn "{o["code"] or o["customer_name"]}" — vui lòng tiếp nhận',
-                     link, exclude_ids=[current_user.id], organization='KBC')
+    abs_link = absolute_link(link)
+    code_or_name = o["code"] or o["customer_name"]
+    approver_name = current_user.full_name or current_user.username
+
+    # 1) Báo (in-app only) cho người tạo đơn HP89
+    notify_user(o['owner_id'],
+                f'Lãnh đạo HP89 đã DUYỆT đơn "{code_or_name}"', link)
+
+    # 2) Email + thông báo cho nhân sự KBC tiếp nhận đơn
+    kbc_recv = _get_kbc_receivers()
+    subj_recv = f'[KBC TIẾP NHẬN] Đơn "{code_or_name}" đã được HP89 duyệt'
+    body_recv = (
+        f'Kính gửi anh/chị,\n\n'
+        f'Đơn hàng từ HP89 vừa được Lãnh đạo HP89 duyệt và chuyển sang KBC tiếp nhận:\n'
+        f'  • Mã đơn: {o["code"] or "(chưa có)"}\n'
+        f'  • Nơi nhận: {o["customer_name"]}\n'
+        f'  • SĐT: {o["customer_phone"] or "—"}\n'
+        f'  • Tổng cộng: {money0_fmt(o["grand_total"])} đ\n'
+        f'  • Người duyệt HP89: {approver_name}\n\n'
+        f'Vui lòng đăng nhập xác nhận tiếp nhận đơn: {abs_link}\n\n'
+        f'Trân trọng,\nKBC-HP89'
+    )
+    notify_and_email_users(kbc_recv,
+                           f'[KBC NHẬN ĐƠN] HP89 đã duyệt đơn "{code_or_name}" — vui lòng tiếp nhận',
+                           link, subj_recv, body_recv,
+                           exclude_ids=[current_user.id])
+
+    # 3) Email + thông báo cho lãnh đạo KBC
+    kbc_lead = _get_kbc_leaders()
+    recv_ids = {r['id'] for r in kbc_recv}
+    subj_lead = f'[Lãnh đạo KBC] Đơn "{code_or_name}" đã được HP89 duyệt'
+    body_lead = (
+        f'Đơn hàng từ HP89 đã được Lãnh đạo HP89 duyệt, đang chờ KBC tiếp nhận:\n'
+        f'  • Mã đơn: {o["code"] or "(chưa có)"}\n'
+        f'  • Nơi nhận: {o["customer_name"]}\n'
+        f'  • Tổng cộng: {money0_fmt(o["grand_total"])} đ\n'
+        f'  • Duyệt bởi: {approver_name}\n\n'
+        f'Xem chi tiết: {abs_link}\n'
+    )
+    # Lọc bỏ những người đã được gửi ở mục KBC tiếp nhận
+    leaders_only = [r for r in kbc_lead if r['id'] not in recv_ids]
+    notify_and_email_users(leaders_only,
+                           f'HP89 đã duyệt đơn "{code_or_name}" — đang chờ KBC tiếp nhận',
+                           link, subj_lead, body_lead,
+                           exclude_ids=[current_user.id])
+
     db.commit()
-    flash('Đã duyệt đơn — đẩy sang KBC tiếp nhận', 'success')
+    flash('Đã duyệt đơn — đẩy sang KBC tiếp nhận, đã gửi email + thông báo', 'success')
     return redirect(url_for('order_view', oid=oid))
 
 
@@ -1603,7 +1825,7 @@ def order_receive_kbc(oid):
 @login_required
 @require_cap('deliver_kbc_order')
 def order_deliver_kbc(oid):
-    """Nhân viên KBC tick đã giao."""
+    """Nhân viên KBC tick đã giao. Thông báo + email cho HP89 owner, HP89 approver, lãnh đạo KBC."""
     o = _order_or_404(oid)
     if o['workflow_status'] != 'received_kbc':
         flash('Đơn chưa ở trạng thái KBC đã nhận, chưa thể tick giao', 'warning')
@@ -1614,16 +1836,47 @@ def order_deliver_kbc(oid):
                   WHERE id=?''',
                ('delivered_kbc', current_user.id, now, now, oid))
     link = url_for('order_view', oid=oid)
-    notify_user(o['owner_id'],
-                f'KBC đã GIAO XONG đơn "{o["code"] or o["customer_name"]}"', link)
-    if o['approved_by']:
-        notify_user(o['approved_by'],
-                    f'KBC đã GIAO XONG đơn "{o["code"] or o["customer_name"]}"', link)
-    if o['received_by'] and o['received_by'] != current_user.id:
-        notify_user(o['received_by'],
-                    f'Đơn "{o["code"] or o["customer_name"]}" đã được giao xong', link)
+    abs_link = absolute_link(link)
+    code_or_name = o["code"] or o["customer_name"]
+    deliverer_name = current_user.full_name or current_user.username
+
+    subject = f'[Đã giao] Đơn "{code_or_name}" đã hoàn thành'
+    body_base = (
+        f'KBC đã giao xong đơn hàng:\n'
+        f'  • Mã đơn: {o["code"] or "(chưa có)"}\n'
+        f'  • Nơi nhận: {o["customer_name"]}\n'
+        f'  • Tổng cộng: {money0_fmt(o["grand_total"])} đ\n'
+        f'  • Người giao: {deliverer_name}\n\n'
+        f'Xem chi tiết: {abs_link}\n'
+    )
+    msg_inapp = f'KBC đã GIAO XONG đơn "{code_or_name}"'
+
+    sent_to_ids = set()
+
+    # 1) HP89 — người tạo đơn (owner)
+    if o['owner_id']:
+        notify_and_email_user(o['owner_id'], msg_inapp, link, subject,
+                              f'Kính gửi anh/chị,\n\n{body_base}\nTrân trọng,\nKBC-HP89')
+        sent_to_ids.add(o['owner_id'])
+
+    # 2) HP89 — Lãnh đạo HP89 đã duyệt đơn
+    if o['approved_by'] and o['approved_by'] not in sent_to_ids:
+        notify_and_email_user(o['approved_by'], msg_inapp, link, subject,
+                              f'Kính gửi Lãnh đạo,\n\nĐơn anh/chị đã duyệt nay hoàn thành:\n{body_base}')
+        sent_to_ids.add(o['approved_by'])
+
+    # 3) Lãnh đạo KBC
+    leaders = _get_kbc_leaders()
+    leaders_email_body = f'Đơn hàng đã hoàn thành giao:\n{body_base}'
+    notify_and_email_users(leaders, msg_inapp, link, subject, leaders_email_body,
+                           exclude_ids=list(sent_to_ids) + [current_user.id])
+
+    # 4) Nhân viên KBC đã nhận đơn (nếu khác người giao) — in-app only
+    if o['received_by'] and o['received_by'] != current_user.id and o['received_by'] not in sent_to_ids:
+        notify_user(o['received_by'], f'Đơn "{code_or_name}" đã được giao xong', link)
+
     db.commit()
-    flash('Đã tick GIAO XONG — đơn hoàn thành', 'success')
+    flash('Đã tick GIAO XONG — đơn hoàn thành, đã gửi email + thông báo', 'success')
     return redirect(url_for('order_view', oid=oid))
 
 
@@ -1718,8 +1971,8 @@ def order_print(oid):
                       WHERE o.id=?''', (oid,)).fetchone()
     if not o:
         abort(404)
-    if o['workflow_status'] in ('draft', 'pending_hp89'):
-        flash('Đơn chưa được duyệt, không in được phiếu giao hàng', 'danger')
+    if o['workflow_status'] == 'draft':
+        flash('Đơn còn ở trạng thái Nháp, hãy gửi Lãnh đạo HP89 duyệt trước khi in phiếu', 'danger')
         return redirect(url_for('order_view', oid=oid))
     items = db.execute('SELECT * FROM order_items WHERE order_id=? ORDER BY sort_order, id', (oid,)).fetchall()
     total_discount = sum((it['amount'] or 0) - (it['amount_after'] or 0) for it in items)

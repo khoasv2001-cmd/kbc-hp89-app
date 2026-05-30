@@ -2,7 +2,7 @@
 <html lang="vi">
 <head>
   <meta charset="utf-8">
-  <title>Phiếu giao hàng – {{ o.code or '#'~o.id }}</title>
+  <title>Phiếu đơn hàng – {{ o.code or '#'~o.id }}</title>
   <style>
     @page { size: A4; margin: 12mm; }
     * { box-sizing: border-box; }
@@ -37,7 +37,7 @@
       <div class="sub">Liên kết KBC &amp; HP89</div>
     </div>
   </div>
-  <h2>PHIẾU GIAO HÀNG</h2>
+  <h2>PHIẾU ĐƠN HÀNG</h2>
   <div class="center" style="font-size:12px">Số: {{ o.code or '#'~o.id }} – Ngày: {{ o.order_date|vndate }}</div>
 
   <div class="row" style="margin-top:10px">
@@ -87,22 +87,20 @@
   <div style="margin-top:6px"><i>Bằng chữ:</i> <b>{{ num_to_vn_words(o.grand_total) }}</b></div>
   {% if o.notes %}<div style="margin-top:6px"><b>Ghi chú:</b> {{ o.notes }}</div>{% endif %}
 
-  <div class="signers">
+  <div class="signers signers-2">
     <div>
-      <div><b>Người lập</b></div>
+      <div><b>Người lập đơn (HP89)</b></div>
       <div class="role">(Ký, ghi rõ họ tên)</div>
       <div class="name">{{ o.signer_creator or '' }}</div>
     </div>
     <div>
-      <div><b>Người duyệt HP89</b></div>
+      <div><b>Người duyệt (Lãnh đạo HP89)</b></div>
       <div class="role">(Ký, ghi rõ họ tên)</div>
       <div class="name">{{ o.signer_approver or o.approver_name or '' }}</div>
     </div>
-    <div>
-      <div><b>Người giao hàng KBC</b></div>
-      <div class="role">(Ký, ghi rõ họ tên)</div>
-      <div class="name">{{ o.signer_deliverer or '' }}</div>
-    </div>
   </div>
+  <style>
+    .signers-2 { grid-template-columns: repeat(2, 1fr) !important; }
+  </style>
 </body>
 </html>

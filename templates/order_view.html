@@ -9,8 +9,8 @@
   </span>
   <div style="flex:1"></div>
   <a class="btn btn-secondary" href="{{ url_for('orders_list') }}">← Danh sách</a>
-  {% if o.workflow_status not in ['draft','pending_hp89'] %}
-    <a class="btn btn-gold" target="_blank" href="{{ url_for('order_print', oid=o.id) }}">🖨️ In phiếu giao hàng</a>
+  {% if o.workflow_status != 'draft' %}
+    <a class="btn btn-gold" target="_blank" href="{{ url_for('order_print', oid=o.id) }}">🖨️ In Phiếu Đơn hàng</a>
   {% endif %}
 </div>
 
