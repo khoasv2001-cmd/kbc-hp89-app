@@ -379,6 +379,42 @@ MANAGE_USERS_CAP = ('manage_users', 'Quản lý người dùng & phân quyền (
 CAP_KEYS = {c[0] for c in CAPABILITIES} | {MANAGE_USERS_CAP[0]}
 ALL_NOTIFY_CAPS = {'notify_order', 'notify_contract', 'notify_media'}
 
+# Cap nào thuộc tổ chức nào (None = dùng chung cho cả 2)
+# Chỉ admin có thể cấp/dùng mọi cap. Manager bên KBC/HP89 chỉ cấp được cap
+# của tổ chức mình + các cap chung.
+CAP_ORGS = {
+    # KBC-only
+    'receive_kbc_order': 'KBC',
+    'deliver_kbc_order': 'KBC',
+    'approve_media': 'KBC',
+    'manage_products': 'KBC',
+    # HP89-only
+    'create_order': 'HP89',
+    'approve_hp89_order': 'HP89',
+    'create_media': 'HP89',
+    # Dùng chung
+    'view_all': None,
+    'manage_contract': None,
+    'approve_legal': None,
+    'comment': None,
+    'notify_order': None,
+    'notify_contract': None,
+    'notify_media': None,
+    'manage_users': None,
+}
+
+
+def cap_for_org(cap, org):
+    """Cap có phù hợp với tổ chức org không?
+    None trong CAP_ORGS = cap chung, ai cũng cấp được."""
+    cap_org = CAP_ORGS.get(cap)
+    return cap_org is None or cap_org == org
+
+
+def caps_for_org(org):
+    """Tập tất cả cap mà user thuộc org có thể được cấp (kể cả cap chung)."""
+    return {c for c in CAP_KEYS if cap_for_org(c, org)}
+
 # Quyền mặc định theo vai trò
 DEFAULT_CAPS = {
     'director': {'view_all', 'approve_hp89_order', 'manage_contract', 'manage_products',
@@ -431,11 +467,19 @@ class User(UserMixin):
 
     @property
     def caps(self):
+        """Tập quyền hiệu lực:
+        - Admin: tất cả CAP_KEYS.
+        - User khác: caps được cấp (hoặc default theo role) — đã LỌC bỏ những cap
+          không thuộc tổ chức của user (KBC user không bao giờ có cap HP89-only và
+          ngược lại, bất kể DB có gì)."""
         if self.is_admin:
             return set(CAP_KEYS)
         if self.permissions is None:
-            return set(DEFAULT_CAPS.get(self.role, set()))
-        return self._granted
+            raw = set(DEFAULT_CAPS.get(self.role, set()))
+        else:
+            raw = self._granted
+        # Lọc theo tổ chức: chỉ giữ cap chung hoặc cap thuộc đúng org
+        return {c for c in raw if CAP_ORGS.get(c) in (None, self.organization)}
 
     def has_cap(self, cap):
         return cap in self.caps
@@ -805,16 +849,51 @@ def change_password():
 
 
 # ---------- Users ----------
-def _selected_caps(form):
-    chosen = [k for k in form.getlist('caps') if k in CAP_KEYS]
+def _selected_caps(form, target_org):
+    """Đọc caps được tick từ form. Lọc theo tổ chức của user đích:
+    - Admin: được cấp mọi cap.
+    - Manager KBC/HP89: chỉ cấp được cap của org đó + cap chung.
+    """
+    if current_user.is_admin:
+        allowed = CAP_KEYS
+    else:
+        allowed = caps_for_org(target_org)
+    chosen = [k for k in form.getlist('caps') if k in allowed]
     return ','.join(chosen)
+
+
+def _can_manage_user(target_org, target_role=None):
+    """Kiểm tra current_user có được quản lý user thuộc target_org không.
+    Returns (ok: bool, error_msg: str hoặc None)."""
+    if current_user.is_admin:
+        return True, None
+    if target_org != current_user.organization:
+        return False, f'Bạn chỉ được quản lý user thuộc {current_user.organization} (cùng tổ chức)'
+    if target_role == 'admin':
+        return False, 'Chỉ Admin mới được quản lý tài khoản Admin'
+    return True, None
+
+
+def _allowed_roles_for_current():
+    """Danh sách role current_user được phép gán (admin chỉ chính admin gán được)."""
+    if current_user.is_admin:
+        return ROLE_ORDER
+    return [r for r in ROLE_ORDER if r != 'admin']
 
 
 @app.route('/users')
 @login_required
 @manage_users_required
 def users_list():
-    rows = get_db().execute('SELECT * FROM users ORDER BY organization, created_at DESC').fetchall()
+    db = get_db()
+    if current_user.is_admin:
+        rows = db.execute('SELECT * FROM users ORDER BY organization, created_at DESC').fetchall()
+    else:
+        # Manager KBC/HP89: chỉ thấy user cùng org (không thấy admin)
+        rows = db.execute(
+            "SELECT * FROM users WHERE organization=? AND role!='admin' ORDER BY created_at DESC",
+            (current_user.organization,)
+        ).fetchall()
     users = [(r, User(r)) for r in rows]
     return render_template('users.html', users=users, role_labels=ROLE_LABELS, org_labels=ORG_LABELS)
 
@@ -823,22 +902,42 @@ def users_list():
 @login_required
 @manage_users_required
 def user_new():
+    allowed_roles = _allowed_roles_for_current()
+    # Non-admin: chỉ tạo user cùng org của mình. Admin: chọn org bất kỳ.
+    if current_user.is_admin:
+        org_choices = ORGS
+    else:
+        org_choices = [current_user.organization]
+
     if request.method == 'POST':
         username = request.form.get('username', '').strip()
         password = request.form.get('password', '')
         full_name = request.form.get('full_name', '').strip()
         email = request.form.get('email', '').strip()
         role = request.form.get('role', 'staff')
-        organization = request.form.get('organization', 'HP89')
+        organization = request.form.get('organization', current_user.organization)
+
+        # Non-admin: ép org = org của mình, không cho chọn admin
+        if not current_user.is_admin:
+            organization = current_user.organization
+            if role == 'admin':
+                role = 'staff'
+
         if organization not in ORGS:
-            organization = 'HP89'
-        permissions = _selected_caps(request.form)
+            organization = current_user.organization
+
+        ok, err = _can_manage_user(organization, role)
+        if not ok:
+            flash(err, 'danger')
+            return redirect(url_for('user_new'))
+
+        permissions = _selected_caps(request.form, organization)
         if not username or not password:
             flash('Vui lòng nhập tên đăng nhập và mật khẩu', 'danger')
         elif len(password) < 6:
             flash('Mật khẩu tối thiểu 6 ký tự', 'danger')
-        elif role not in ROLE_LABELS:
-            flash('Vai trò không hợp lệ', 'danger')
+        elif role not in allowed_roles:
+            flash('Vai trò không hợp lệ hoặc bạn không có quyền gán vai trò này', 'danger')
         else:
             try:
                 db = get_db()
@@ -854,9 +953,10 @@ def user_new():
                 flash('Tên đăng nhập đã tồn tại', 'danger')
     return render_template('user_form.html', edit_user=None, capabilities=CAPABILITIES,
                            manage_users_cap=MANAGE_USERS_CAP,
-                           role_labels=ROLE_LABELS, role_order=ROLE_ORDER,
-                           orgs=ORGS, org_labels=ORG_LABELS,
-                           default_caps=DEFAULT_CAPS, full_access_roles=FULL_ACCESS_ROLES)
+                           role_labels=ROLE_LABELS, role_order=allowed_roles,
+                           orgs=org_choices, org_labels=ORG_LABELS,
+                           default_caps=DEFAULT_CAPS, full_access_roles=FULL_ACCESS_ROLES,
+                           cap_orgs=CAP_ORGS, force_org=(current_user.organization if not current_user.is_admin else None))
 
 
 @app.route('/users/<int:uid>/edit', methods=['GET', 'POST'])
@@ -868,16 +968,43 @@ def user_edit(uid):
     if not row:
         abort(404)
     eu = User(row)
+
+    # Manager non-admin: chỉ sửa được user cùng org và không phải admin
+    ok, err = _can_manage_user(eu.organization, eu.role)
+    if not ok:
+        flash(err, 'danger')
+        return redirect(url_for('users_list'))
+
+    allowed_roles = _allowed_roles_for_current()
+    if current_user.is_admin:
+        org_choices = ORGS
+    else:
+        org_choices = [current_user.organization]
+
     if request.method == 'POST':
         full_name = request.form.get('full_name', '').strip()
         email = request.form.get('email', '').strip()
         role = request.form.get('role', eu.role)
         organization = request.form.get('organization', eu.organization)
+
+        # Non-admin: không cho đổi org, không cho thăng cấp admin
+        if not current_user.is_admin:
+            organization = eu.organization
+            if role == 'admin':
+                role = eu.role
+
         if organization not in ORGS:
             organization = eu.organization
-        permissions = _selected_caps(request.form)
-        if role not in ROLE_LABELS:
-            flash('Vai trò không hợp lệ', 'danger')
+
+        # Re-check sau khi normalize
+        ok, err = _can_manage_user(organization, role)
+        if not ok:
+            flash(err, 'danger')
+            return redirect(url_for('user_edit', uid=uid))
+
+        permissions = _selected_caps(request.form, organization)
+        if role not in allowed_roles:
+            flash('Vai trò không hợp lệ hoặc bạn không có quyền gán vai trò này', 'danger')
         else:
             db.execute('UPDATE users SET full_name=?, email=?, role=?, organization=?, permissions=? WHERE id=?',
                        (full_name, email, role, organization, permissions, uid))
@@ -886,9 +1013,10 @@ def user_edit(uid):
             return redirect(url_for('users_list'))
     return render_template('user_form.html', edit_user=row, current_caps=eu.caps,
                            capabilities=CAPABILITIES, manage_users_cap=MANAGE_USERS_CAP,
-                           role_labels=ROLE_LABELS, role_order=ROLE_ORDER,
-                           orgs=ORGS, org_labels=ORG_LABELS,
-                           default_caps=DEFAULT_CAPS, full_access_roles=FULL_ACCESS_ROLES)
+                           role_labels=ROLE_LABELS, role_order=allowed_roles,
+                           orgs=org_choices, org_labels=ORG_LABELS,
+                           default_caps=DEFAULT_CAPS, full_access_roles=FULL_ACCESS_ROLES,
+                           cap_orgs=CAP_ORGS, force_org=(current_user.organization if not current_user.is_admin else None))
 
 
 @app.route('/users/<int:uid>/delete', methods=['POST'])
@@ -899,6 +1027,13 @@ def user_delete(uid):
         flash('Không thể xoá chính mình', 'danger')
         return redirect(url_for('users_list'))
     db = get_db()
+    row = db.execute('SELECT role, organization FROM users WHERE id=?', (uid,)).fetchone()
+    if not row:
+        abort(404)
+    ok, err = _can_manage_user(row['organization'], row['role'])
+    if not ok:
+        flash(err, 'danger')
+        return redirect(url_for('users_list'))
     db.execute('DELETE FROM users WHERE id=?', (uid,))
     db.commit()
     flash('Đã xoá user', 'success')
@@ -909,11 +1044,18 @@ def user_delete(uid):
 @login_required
 @manage_users_required
 def user_reset(uid):
+    db = get_db()
+    row = db.execute('SELECT role, organization FROM users WHERE id=?', (uid,)).fetchone()
+    if not row:
+        abort(404)
+    ok, err = _can_manage_user(row['organization'], row['role'])
+    if not ok:
+        flash(err, 'danger')
+        return redirect(url_for('users_list'))
     new_pwd = request.form.get('new_password', '').strip()
     if len(new_pwd) < 6:
         flash('Mật khẩu mới tối thiểu 6 ký tự', 'danger')
         return redirect(url_for('users_list'))
-    db = get_db()
     db.execute('UPDATE users SET password_hash=? WHERE id=?', (generate_password_hash(new_pwd), uid))
     db.commit()
     flash('Đã đặt lại mật khẩu', 'success')

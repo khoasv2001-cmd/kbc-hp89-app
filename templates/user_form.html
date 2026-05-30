@@ -3,6 +3,13 @@
 {% block content %}
 <h1>👥 {% if edit_user %}Sửa người dùng: {{ edit_user.username }}{% else %}Thêm người dùng mới{% endif %}</h1>
 
+{% if force_org %}
+<div class="flash info">
+  ℹ️ Bạn là quản lý của <b>{{ force_org }}</b> nên chỉ tạo/sửa được user thuộc <b>{{ force_org }}</b>
+  và chỉ phân được các quyền của tổ chức {{ force_org }}.
+</div>
+{% endif %}
+
 <form method="post" class="card">
   <h2>1. Thông tin cơ bản</h2>
   {% if not edit_user %}
@@ -27,12 +34,18 @@
   <h2>2. Đơn vị &amp; Vai trò</h2>
   <div class="form-row">
     <div><label>Đơn vị</label>
-      <select name="organization">
-        {% for o in orgs %}
-          <option value="{{ o }}" {% if edit_user and edit_user.organization == o %}selected{% endif %}>{{ org_labels[o] }}</option>
-        {% endfor %}
-      </select>
-      <small style="color:#666">KBC: nhận đơn &amp; giao hàng, duyệt truyền thông. HP89: đặt hàng &amp; soạn nội dung.</small>
+      {% if force_org %}
+        <input type="text" value="{{ org_labels[force_org] }}" readonly style="background:#f5f5f5; cursor:not-allowed">
+        <input type="hidden" name="organization" value="{{ force_org }}">
+        <small style="color:#666">Khoá theo tổ chức của bạn</small>
+      {% else %}
+        <select name="organization" id="org-select">
+          {% for o in orgs %}
+            <option value="{{ o }}" {% if edit_user and edit_user.organization == o %}selected{% endif %}>{{ org_labels[o] }}</option>
+          {% endfor %}
+        </select>
+        <small style="color:#666">KBC: nhận đơn &amp; giao hàng, duyệt truyền thông, quản lý sản phẩm. HP89: đặt hàng &amp; soạn nội dung.</small>
+      {% endif %}
     </div>
     <div><label>Vai trò chức danh</label>
       <select name="role">
@@ -44,19 +57,38 @@
   </div>
 
   <h2>3. Phân quyền chi tiết</h2>
-  <div style="font-size:13px; color:#666; margin-bottom:10px">Tick các quyền user được phép thực hiện. Nếu không tick gì thì user sẽ có quyền mặc định của vai trò.</div>
-  <div style="display:grid; grid-template-columns: 1fr 1fr; gap:8px 16px">
+  <div style="font-size:13px; color:#666; margin-bottom:10px">
+    Tick các quyền user được phép thực hiện. Bỏ trống = dùng quyền mặc định của vai trò.
+    Cap chỉ áp dụng cho 1 tổ chức sẽ tự ẩn nếu chọn tổ chức khác.
+  </div>
+  <div id="caps-grid" style="display:grid; grid-template-columns: 1fr 1fr; gap:8px 16px">
     {% for key, label in capabilities %}
-      <label style="display:flex; gap:6px; align-items:flex-start; font-weight:400">
+      {% set cap_org = cap_orgs.get(key) %}
+      <label class="cap-item" data-cap-org="{{ cap_org or 'any' }}"
+             style="display:flex; gap:6px; align-items:flex-start; font-weight:400; padding:6px; border-radius:4px">
         <input type="checkbox" name="caps" value="{{ key }}"
           {% if edit_user and current_caps and key in current_caps %}checked{% endif %}>
-        <span>{{ label }} <code style="color:#888; font-size:11px">[{{ key }}]</code></span>
+        <span>
+          {{ label }}
+          {% if cap_org == 'KBC' %}
+            <span class="badge-org badge-kbc" style="font-size:10px; padding:1px 5px">KBC</span>
+          {% elif cap_org == 'HP89' %}
+            <span class="badge-org badge-hp89" style="font-size:10px; padding:1px 5px">HP89</span>
+          {% else %}
+            <span class="badge-org" style="background:#e9ecef; color:#495057; font-size:10px; padding:1px 5px">Chung</span>
+          {% endif %}
+          <code style="color:#888; font-size:11px">[{{ key }}]</code>
+        </span>
       </label>
     {% endfor %}
-    <label style="display:flex; gap:6px; align-items:flex-start; font-weight:400; padding:6px; background:#fff3cd; border-radius:4px">
+    <label class="cap-item" data-cap-org="any"
+           style="display:flex; gap:6px; align-items:flex-start; font-weight:400; padding:6px; background:#fff3cd; border-radius:4px">
       <input type="checkbox" name="caps" value="{{ manage_users_cap[0] }}"
         {% if edit_user and current_caps and manage_users_cap[0] in current_caps %}checked{% endif %}>
-      <span><b>⚠️ {{ manage_users_cap[1] }}</b> <code style="color:#888; font-size:11px">[{{ manage_users_cap[0] }}]</code></span>
+      <span><b>⚠️ {{ manage_users_cap[1] }}</b>
+        <span class="badge-org" style="background:#e9ecef; color:#495057; font-size:10px; padding:1px 5px">Chung</span>
+        <code style="color:#888; font-size:11px">[{{ manage_users_cap[0] }}]</code>
+      </span>
     </label>
   </div>
 
@@ -65,4 +97,29 @@
     <a class="btn btn-secondary" href="{{ url_for('users_list') }}">Quay lại</a>
   </div>
 </form>
+
+<script>
+function applyCapFilter() {
+  {% if force_org %}
+  const org = "{{ force_org }}";
+  {% else %}
+  const orgSelect = document.getElementById('org-select');
+  const org = orgSelect ? orgSelect.value : '';
+  {% endif %}
+  document.querySelectorAll('.cap-item').forEach(function(el) {
+    const capOrg = el.getAttribute('data-cap-org');
+    const visible = (capOrg === 'any' || capOrg === org);
+    el.style.display = visible ? '' : 'none';
+    if (!visible) {
+      const cb = el.querySelector('input[type=checkbox]');
+      if (cb) cb.checked = false;
+    }
+  });
+}
+{% if not force_org %}
+const _sel = document.getElementById('org-select');
+if (_sel) _sel.addEventListener('change', applyCapFilter);
+{% endif %}
+applyCapFilter();
+</script>
 {% endblock %}
