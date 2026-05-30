@@ -28,13 +28,13 @@
     <button id="btn-test-push" class="btn btn-gold" onclick="testPush()" style="display:none">
       🧪 Gửi thử 1 thông báo nổi
     </button>
-    <button class="btn btn-outline" onclick="testSound()">
-      🔊 Phát thử âm "KBC Ginseng"
-    </button>
     <button id="btn-disable-push" class="btn btn-secondary" onclick="disablePush()" style="display:none">
       🔕 Tắt thông báo nổi
     </button>
   </div>
+  <p style="font-size:12px; color:#666; margin-top:10px">
+    🔊 Mỗi thông báo mới sẽ kèm âm <b>"KBC Ginseng"</b> giọng trẻ em hoạt hình.
+  </p>
 
   <div id="iphone-guide" style="display:none; margin-top:14px; padding:14px; background:#fff; border-radius:8px; border:1px dashed #c61c2d">
     <h3 style="margin:0 0 10px; color:#c61c2d">📱 Bạn đang dùng iPhone / iPad?</h3>
@@ -191,7 +191,11 @@ async function enablePush() {
       body: JSON.stringify({subscription: sub.toJSON()})
     });
     if (resp.ok) {
-      alert('✅ Đã bật thông báo nổi! Bấm "Gửi thử 1 thông báo" để kiểm tra.');
+      // Phát âm KBC Ginseng ngay để user nghe + đồng thời unlock audio cho lần sau
+      if (typeof playKBCSound === 'function') {
+        try { playKBCSound(); } catch (e) {}
+      }
+      alert('✅ Đã bật thông báo nổi!\n\nMỗi tin mới sẽ kèm âm "KBC Ginseng" giọng bé hoạt hình.\n\nBấm "Gửi thử 1 thông báo nổi" để kiểm tra trên điện thoại.');
       refreshPushStatus();
     } else {
       alert('❌ Lỗi đăng ký với server.');
@@ -224,7 +228,11 @@ async function testPush() {
   try {
     const r = await fetch('/push/test', {method: 'POST'});
     if (r.ok) {
-      alert('🧪 Đã gửi thử. Kiểm tra thanh thông báo điện thoại trong vài giây tới.');
+      // Phát âm KBC Ginseng ngay để user nghe (push system có thể delay vài giây)
+      if (typeof playKBCSound === 'function') {
+        try { playKBCSound(); } catch (e) {}
+      }
+      alert('🧪 Đã gửi thử. Trên điện thoại sẽ hiện thông báo nổi kèm âm trong vài giây tới.');
     } else {
       alert('Lỗi gửi thử.');
     }
@@ -233,15 +241,6 @@ async function testPush() {
   }
 }
 
-// Phát thử âm "KBC Ginseng" - dùng để kiểm tra file âm và unlock audio
-function testSound() {
-  if (typeof playKBCSound === 'function') {
-    playKBCSound();
-  } else {
-    const a = document.getElementById('kbc-notify-sound');
-    if (a) { a.currentTime = 0; a.play().catch(e => alert('Lỗi phát âm: ' + e.message)); }
-  }
-}
 
 refreshPushStatus();
 </script>

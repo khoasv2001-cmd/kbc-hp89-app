@@ -1634,10 +1634,9 @@ def _order_or_404(oid):
     return o
 
 
-@app.route('/orders/<int:oid>/submit', methods=['POST'])
-@login_required
 def _do_submit_order(oid):
-    """Logic chuyển đơn từ Nháp -> Chờ HP89 duyệt + gửi notification + email."""
+    """Helper (KHÔNG phải route!): chuyển đơn Nháp -> Chờ HP89 duyệt + gửi notification + email.
+    Trả về (ok: bool, msg: str). Được gọi từ order_submit và _save_order(action=save_and_submit)."""
     db = get_db()
     o = db.execute('SELECT * FROM orders WHERE id=?', (oid,)).fetchone()
     if not o:
