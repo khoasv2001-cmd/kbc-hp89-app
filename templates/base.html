@@ -218,13 +218,15 @@
   </div>
 
   {% if current_user.is_authenticated %}
-  <audio id="kbc-notify-sound" src="{{ url_for('static', filename='kbc-notify.mp3') }}" preload="auto"></audio>
+  <!-- File âm thông báo: "KBC Ginseng" giọng trẻ em hoạt hình -->
+  <audio id="kbc-notify-sound" preload="auto">
+    <source src="{{ url_for('static', filename='kbc-notify.mp3') }}" type="audio/mpeg">
+  </audio>
   <script>
-    // Service worker + Web Push (giống app gốc)
+    // ======= Service worker + Web Push =======
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js').then(reg => {
         {% if vapid_public_key %}
-        // Đăng ký push nếu có VAPID
         reg.pushManager.getSubscription().then(sub => {
           if (sub) return;
           const key = '{{ vapid_public_key }}';
@@ -242,12 +244,108 @@
         });
         {% endif %}
       });
+
+      // Nhận message từ service worker (khi có push) -> phát âm
+      navigator.serviceWorker.addEventListener('message', function(e) {
+        if (e.data && (e.data.type === 'noti-speak' || e.data.type === 'noti-new')) {
+          playKBCSound();
+        }
+      });
     }
-    // Phát chuông khi có thông báo mới (poll mỗi 30s)
+
+    // ======= Audio unlock (Chrome chặn autoplay đến khi user tương tác) =======
+    let audioUnlocked = false;
+    const kbcAudio = document.getElementById('kbc-notify-sound');
+
+    function unlockAudio() {
+      if (audioUnlocked || !kbcAudio) return;
+      // Phát thử với volume=0 để mở khoá
+      kbcAudio.volume = 0;
+      const p = kbcAudio.play();
+      if (p && p.then) {
+        p.then(() => {
+          kbcAudio.pause();
+          kbcAudio.currentTime = 0;
+          kbcAudio.volume = 1;
+          audioUnlocked = true;
+        }).catch(() => {
+          kbcAudio.volume = 1;
+        });
+      }
+    }
+    document.addEventListener('click', unlockAudio, {once: false, passive: true});
+    document.addEventListener('touchstart', unlockAudio, {once: false, passive: true});
+
+    // ======= Hàm phát âm "KBC Ginseng" =======
+    function playKBCSound() {
+      if (!kbcAudio) return;
+      try {
+        kbcAudio.currentTime = 0;
+        kbcAudio.volume = 1;
+        const p = kbcAudio.play();
+        if (p && p.catch) {
+          p.catch(err => {
+            // Trình duyệt block do chưa có user gesture - fallback dùng SpeechSynthesis
+            console.log('Audio blocked, fallback to TTS:', err.message);
+            speakKBCFallback();
+          });
+        }
+      } catch (e) { speakKBCFallback(); }
+    }
+
+    // Fallback: nói "KBC Ginseng" bằng Web Speech API
+    function speakKBCFallback() {
+      if (!('speechSynthesis' in window)) return;
+      try {
+        const u = new SpeechSynthesisUtterance('KBC Ginseng!');
+        u.lang = 'en-US';
+        u.pitch = 1.8;   // pitch cao = giọng trẻ em
+        u.rate = 0.9;
+        u.volume = 1;
+        speechSynthesis.cancel();
+        speechSynthesis.speak(u);
+      } catch (e) {}
+    }
+
+    // ======= Poll số thông báo chưa đọc -> phát âm khi có tin mới =======
     let lastUnread = {{ unread_notif_count or 0 }};
-    setInterval(() => {
-      fetch('/notifications/count', {credentials:'same-origin'}).catch(()=>{});
-    }, 30000);
+
+    function updateBellBadge(n) {
+      const bell = document.querySelector('.bell');
+      if (!bell) return;
+      let badge = bell.querySelector('.count');
+      if (n > 0) {
+        if (!badge) {
+          badge = document.createElement('span');
+          badge.className = 'count';
+          bell.appendChild(badge);
+        }
+        badge.textContent = n;
+      } else if (badge) {
+        badge.remove();
+      }
+    }
+
+    function pollNotifications() {
+      fetch('/notifications/count', {credentials: 'same-origin'})
+        .then(r => r.ok ? r.json() : null)
+        .then(d => {
+          if (!d) return;
+          const n = d.unread || 0;
+          if (n > lastUnread) {
+            playKBCSound();   // <- phát âm "KBC Ginseng"
+          }
+          lastUnread = n;
+          updateBellBadge(n);
+        })
+        .catch(() => {});
+    }
+    // Poll 20s
+    setInterval(pollNotifications, 20000);
+    // Poll ngay khi tab focus lại (user mở app từ tab khác)
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') pollNotifications();
+    });
   </script>
   {% endif %}
 </body>

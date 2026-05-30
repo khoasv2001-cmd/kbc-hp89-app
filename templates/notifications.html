@@ -26,7 +26,10 @@
       🔔 BẬT THÔNG BÁO NỔI
     </button>
     <button id="btn-test-push" class="btn btn-gold" onclick="testPush()" style="display:none">
-      🧪 Gửi thử 1 thông báo
+      🧪 Gửi thử 1 thông báo nổi
+    </button>
+    <button class="btn btn-outline" onclick="testSound()">
+      🔊 Phát thử âm "KBC Ginseng"
     </button>
     <button id="btn-disable-push" class="btn btn-secondary" onclick="disablePush()" style="display:none">
       🔕 Tắt thông báo nổi
@@ -227,6 +230,16 @@ async function testPush() {
     }
   } catch (e) {
     alert('Lỗi: ' + e.message);
+  }
+}
+
+// Phát thử âm "KBC Ginseng" - dùng để kiểm tra file âm và unlock audio
+function testSound() {
+  if (typeof playKBCSound === 'function') {
+    playKBCSound();
+  } else {
+    const a = document.getElementById('kbc-notify-sound');
+    if (a) { a.currentTime = 0; a.play().catch(e => alert('Lỗi phát âm: ' + e.message)); }
   }
 }
 

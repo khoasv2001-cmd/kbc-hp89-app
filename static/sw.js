@@ -1,6 +1,6 @@
 // Service worker PWA cho KBC-HP89
 // Network-first cho /static; trang dong khong cache de tranh stale.
-const CACHE = 'kbc-hp89-v1';
+const CACHE = 'kbc-hp89-v2';
 const PRECACHE = [
   '/static/style.css',
   '/static/icon-192.png',

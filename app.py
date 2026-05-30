@@ -1971,9 +1971,8 @@ def order_print(oid):
                       WHERE o.id=?''', (oid,)).fetchone()
     if not o:
         abort(404)
-    if o['workflow_status'] == 'draft':
-        flash('Đơn còn ở trạng thái Nháp, hãy gửi Lãnh đạo HP89 duyệt trước khi in phiếu', 'danger')
-        return redirect(url_for('order_view', oid=oid))
+    # Cho phép in ở mọi trạng thái (kể cả Nháp) — nhân viên HP89 có thể in để
+    # mang phiếu đi xin chữ ký nội bộ trước khi gửi duyệt.
     items = db.execute('SELECT * FROM order_items WHERE order_id=? ORDER BY sort_order, id', (oid,)).fetchall()
     total_discount = sum((it['amount'] or 0) - (it['amount_after'] or 0) for it in items)
     return render_template('order_print.html', o=o, items=items, total_discount=total_discount)
@@ -2791,6 +2790,16 @@ def notifications_list():
         'SELECT * FROM notifications WHERE user_id=? ORDER BY is_read ASC, created_at DESC LIMIT 100',
         (current_user.id,)).fetchall()
     return render_template('notifications.html', notifications=rows)
+
+
+@app.route('/notifications/count')
+@login_required
+def notifications_count():
+    """API trả số notification chưa đọc — dùng cho client poll phát âm khi có tin mới."""
+    row = get_db().execute(
+        'SELECT COUNT(*) c FROM notifications WHERE user_id=? AND is_read=0',
+        (current_user.id,)).fetchone()
+    return jsonify(unread=(row['c'] if row else 0))
 
 
 @app.route('/notifications/<int:nid>/open')
