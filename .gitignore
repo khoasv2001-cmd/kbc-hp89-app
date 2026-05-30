@@ -2,6 +2,7 @@ venv/
 __pycache__/
 VAPID_KEYS.txt
 _make_logo.py
+_make_icons.py
 *.pyc
 *.pyo
 data.db
