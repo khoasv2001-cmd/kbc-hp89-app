@@ -99,29 +99,22 @@
     </div>
   </div>
 
-  <h2>4. Danh sách sản phẩm</h2>
-  <div style="margin-bottom:8px; display:flex; gap:8px; align-items:center; flex-wrap:wrap">
-    <select id="product-picker" style="width:300px; display:inline-block">
-      <option value="">— Chọn từ danh mục KBC —</option>
-      {% for p in products %}
-        <option value="{{ p.id }}" data-name="{{ p.name }}" data-unit="{{ p.unit or '' }}" data-packaging="{{ p.packaging or '' }}" data-price="{{ p.default_price }}">{{ p.name }} ({{ p.unit or 'cái' }}) – {{ p.default_price|money0 }}đ</option>
-      {% endfor %}
-    </select>
-    <button type="button" class="btn btn-gold" onclick="addRow()">+ Thêm dòng trống</button>
-  </div>
+  <h2>4. Nhập số lượng</h2>
+  <p style="font-size:13px; color:#666; margin:4px 0 10px">
+    Chọn sản phẩm từ danh mục KBC — ĐVT, Quy cách và Đơn giá tự điền theo sản phẩm.
+    Chỉ cần nhập <b>số lượng</b> (số nguyên).
+  </p>
   <div style="overflow-x:auto; -webkit-overflow-scrolling:touch">
   <table id="items-table" style="margin-bottom:10px; min-width:700px">
     <thead>
       <tr>
         <th style="width:32px">#</th>
-        <th>Sản phẩm</th>
+        <th>Tên sản phẩm</th>
         <th style="width:80px">ĐVT</th>
         <th style="width:100px">Quy cách</th>
         <th style="width:80px">SL</th>
         <th style="width:120px">Đơn giá</th>
-        <th style="width:100px">Thành tiền</th>
-        <th style="width:70px">CK %</th>
-        <th style="width:120px">Sau CK</th>
+        <th style="width:130px">Thành tiền</th>
         <th style="width:36px"></th>
       </tr>
     </thead>
@@ -131,16 +124,24 @@
         <tr class="item-row">
           <td class="row-no">{{ loop.index }}</td>
           <td>
-            <input type="hidden" name="item_product_id[]" value="{{ it.product_id or '' }}">
-            <input type="text" name="item_product_name[]" value="{{ it.product_name }}" required>
+            <select name="item_product_id[]" class="prod-pick" required>
+              <option value="">— Chọn sản phẩm —</option>
+              {% for p in products %}
+                <option value="{{ p.id }}"
+                        data-unit="{{ p.unit or '' }}"
+                        data-packaging="{{ p.packaging or '' }}"
+                        data-price="{{ p.default_price }}"
+                        {% if it.product_id == p.id %}selected{% endif %}>
+                  {{ p.name }}
+                </option>
+              {% endfor %}
+            </select>
           </td>
-          <td><input type="text" name="item_unit[]" value="{{ it.unit }}"></td>
-          <td><input type="text" name="item_packaging[]" value="{{ it.packaging }}"></td>
-          <td><input type="number" step="0.01" name="item_qty[]" value="{{ it.qty }}" class="qty"></td>
-          <td><input type="number" step="0.01" name="item_unit_price[]" value="{{ it.unit_price }}" class="price"></td>
-          <td class="amount">{{ it.amount|money2 }}</td>
-          <td><input type="number" step="0.01" min="0" max="100" name="item_discount[]" value="{{ it.discount }}" class="disc"></td>
-          <td class="amount-after">{{ it.amount_after|money2 }}</td>
+          <td><input type="text" class="unit-disp" value="{{ it.unit }}" readonly style="background:#f5f3ef"></td>
+          <td><input type="text" class="pack-disp" value="{{ it.packaging }}" readonly style="background:#f5f3ef"></td>
+          <td><input type="number" step="1" min="1" name="item_qty[]" value="{{ it.qty|int }}" class="qty" required></td>
+          <td><input type="text" class="price-disp" value="{{ it.unit_price|money0 }}" readonly style="background:#f5f3ef"></td>
+          <td class="amount" style="font-weight:600">{{ it.amount|money0 }}</td>
           <td><button type="button" class="btn btn-sm btn-danger" onclick="rmRow(this)">×</button></td>
         </tr>
         {% endfor %}
@@ -148,6 +149,18 @@
     </tbody>
   </table>
   </div>
+  <button type="button" class="btn btn-gold" onclick="addRow()">+ Thêm dòng sản phẩm</button>
+
+  <!-- Template options cho JS clone vào select sản phẩm của các dòng mới -->
+  <template id="product-options-template">
+    <option value="">— Chọn sản phẩm —</option>
+    {% for p in products %}
+      <option value="{{ p.id }}"
+              data-unit="{{ p.unit or '' }}"
+              data-packaging="{{ p.packaging or '' }}"
+              data-price="{{ p.default_price }}">{{ p.name }}</option>
+    {% endfor %}
+  </template>
 
   <h2 style="margin-top:24px">5. Tổng tiền & ghi chú</h2>
   <div class="form-row three">
@@ -176,8 +189,20 @@
     <div><label>Người ký nháp</label>
       <input type="text" name="signer_creator" value="{{ order.signer_creator if order else (current_user.full_name or current_user.username) }}">
     </div>
-    <div><label>Người duyệt</label>
-      <input type="text" name="signer_approver" value="{{ order.signer_approver if order else '' }}">
+    <div><label>Người duyệt (Lãnh đạo HP89)</label>
+      <select name="signer_approver">
+        <option value="">— Chọn người duyệt —</option>
+        {% for u in hp89_approvers %}
+          {% set label = u.full_name or u.username %}
+          <option value="{{ label }}"
+            {% if order and order.signer_approver == label %}selected{% endif %}>
+            {{ label }} ({{ u.username }})
+          </option>
+        {% endfor %}
+      </select>
+      {% if not hp89_approvers %}
+        <small style="color:#c62828">⚠️ Chưa có user HP89 nào được cấp quyền duyệt đơn — liên hệ Admin.</small>
+      {% endif %}
     </div>
   </div>
   <div class="form-row full">
@@ -187,15 +212,53 @@
   </div>
 
   <h2>6. File đính kèm (tùy chọn)</h2>
-  <div class="form-row three">
-    <div><label>File đơn hàng</label><input type="file" name="order_file"></div>
-    <div><label>File hóa đơn</label><input type="file" name="invoice_file"></div>
-    <div><label>File giao hàng</label><input type="file" name="delivery_file"></div>
+  <div class="files-grid">
+    <div class="file-cell">
+      <label>File đơn hàng</label>
+      <input type="file" name="order_file">
+    </div>
+    <div class="file-cell">
+      <label>File hóa đơn</label>
+      <input type="file" name="invoice_file">
+    </div>
+    <div class="file-cell">
+      <label>File giao hàng</label>
+      <input type="file" name="delivery_file">
+    </div>
+    <div class="file-cell">
+      <label>Phiếu xuất kho</label>
+      <input type="file" name="warehouse_file">
+    </div>
+    <div class="file-cell">
+      <label>File khác</label>
+      <input type="file" name="other_file">
+    </div>
+    <div class="file-cell file-cell-empty"></div>
   </div>
-  <div class="form-row">
-    <div><label>Phiếu xuất kho</label><input type="file" name="warehouse_file"></div>
-    <div><label>File khác</label><input type="file" name="other_file"></div>
-  </div>
+  <style>
+    .files-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px 16px;
+      margin-bottom: 8px;
+    }
+    .file-cell {
+      display: flex; flex-direction: column; gap: 4px;
+      padding: 10px; background: #fafafa;
+      border: 1px dashed #d0d7de; border-radius: 6px;
+      min-height: 70px;
+    }
+    .file-cell label { margin-bottom: 2px; }
+    .file-cell input[type=file] {
+      padding: 2px; border: 0; background: transparent;
+      font-size: 13px;
+    }
+    .file-cell-empty { background: transparent; border: 0; }
+    @media (max-width: 720px) {
+      .files-grid { grid-template-columns: 1fr; }
+      .file-cell-empty { display: none; }
+    }
+  </style>
 
   <div style="margin-top:20px; display:flex; gap:8px">
     <button type="submit" class="btn btn-primary">💾 Lưu (Nháp)</button>
@@ -259,62 +322,80 @@ function saveInvoiceEntity() {
   }).catch(() => alert('Lỗi kết nối'));
 }
 
-// Item rows
+// ============ Item rows: chọn sản phẩm + nhập SL ============
+function buildProductOptions() {
+  // Clone HTML từ <template id="product-options-template"> để dùng cho row mới
+  const tpl = document.getElementById('product-options-template');
+  return tpl ? tpl.innerHTML : '';
+}
+const PRODUCT_OPTIONS_HTML = buildProductOptions();
+
 function rowTemplate(i) {
   return `<tr class="item-row">
     <td class="row-no">${i+1}</td>
     <td>
-      <input type="hidden" name="item_product_id[]" value="">
-      <input type="text" name="item_product_name[]" required placeholder="Tên sản phẩm">
+      <select name="item_product_id[]" class="prod-pick" required>
+        ${PRODUCT_OPTIONS_HTML}
+      </select>
     </td>
-    <td><input type="text" name="item_unit[]" placeholder="ĐVT"></td>
-    <td><input type="text" name="item_packaging[]" placeholder="Quy cách"></td>
-    <td><input type="number" step="0.01" name="item_qty[]" class="qty" placeholder="0"></td>
-    <td><input type="number" step="0.01" name="item_unit_price[]" class="price" placeholder="0"></td>
-    <td class="amount">0</td>
-    <td><input type="number" step="0.01" min="0" max="100" name="item_discount[]" value="0" class="disc"></td>
-    <td class="amount-after">0</td>
+    <td><input type="text" class="unit-disp" readonly style="background:#f5f3ef"></td>
+    <td><input type="text" class="pack-disp" readonly style="background:#f5f3ef"></td>
+    <td><input type="number" step="1" min="1" name="item_qty[]" class="qty" placeholder="0" required></td>
+    <td><input type="text" class="price-disp" readonly style="background:#f5f3ef"></td>
+    <td class="amount" style="font-weight:600">0</td>
     <td><button type="button" class="btn btn-sm btn-danger" onclick="rmRow(this)">×</button></td>
   </tr>`;
 }
-function addRow(prefill) {
+
+function addRow() {
   const tb = document.getElementById('items-tbody');
   const i = tb.querySelectorAll('tr').length;
   tb.insertAdjacentHTML('beforeend', rowTemplate(i));
-  if (prefill) {
-    const row = tb.lastElementChild;
-    row.querySelector('input[name="item_product_id[]"]').value = prefill.id || '';
-    row.querySelector('input[name="item_product_name[]"]').value = prefill.name || '';
-    row.querySelector('input[name="item_unit[]"]').value = prefill.unit || '';
-    row.querySelector('input[name="item_packaging[]"]').value = prefill.packaging || '';
-    row.querySelector('input[name="item_unit_price[]"]').value = prefill.price || 0;
-  }
   bindRow();
   recalc();
 }
+
 function rmRow(btn) {
   btn.closest('tr').remove();
   renumber();
   recalc();
 }
+
 function renumber() {
   document.querySelectorAll('#items-tbody .row-no').forEach((td, i) => td.textContent = i+1);
 }
+
 function fmt(v) {
   v = parseFloat(v||0);
   return v.toLocaleString('vi-VN', {minimumFractionDigits:0, maximumFractionDigits:0});
 }
+
+function fillFromProduct(row) {
+  // Khi chọn sản phẩm, đọc data-* từ option được chọn -> điền ĐVT/Quy cách/Đơn giá
+  const sel = row.querySelector('.prod-pick');
+  const opt = sel?.options[sel.selectedIndex];
+  if (!opt || !opt.value) {
+    row.querySelector('.unit-disp').value = '';
+    row.querySelector('.pack-disp').value = '';
+    row.querySelector('.price-disp').value = '';
+    row.querySelector('.price-disp').dataset.raw = 0;
+    return;
+  }
+  row.querySelector('.unit-disp').value = opt.dataset.unit || '';
+  row.querySelector('.pack-disp').value = opt.dataset.packaging || '';
+  const price = parseFloat(opt.dataset.price || 0);
+  row.querySelector('.price-disp').value = fmt(price);
+  row.querySelector('.price-disp').dataset.raw = price;
+}
+
 function recalc() {
   let subtotal = 0;
   document.querySelectorAll('#items-tbody tr').forEach(row => {
-    const q = parseFloat(row.querySelector('.qty')?.value || 0);
-    const p = parseFloat(row.querySelector('.price')?.value || 0);
-    const d = parseFloat(row.querySelector('.disc')?.value || 0);
-    const amt = q * p;
-    const after = Math.max(0, amt - amt * d / 100);
+    const q = parseInt(row.querySelector('.qty')?.value || 0, 10);
+    const p = parseFloat(row.querySelector('.price-disp')?.dataset.raw || 0);
+    const amt = (isFinite(q) ? q : 0) * (isFinite(p) ? p : 0);
     row.querySelector('.amount').textContent = fmt(amt);
-    row.querySelector('.amount-after').textContent = fmt(after);
-    subtotal += after;
+    subtotal += amt;
   });
   const vat = parseFloat(document.getElementById('vat-percent').value || 0);
   const vatAmt = subtotal * vat / 100;
@@ -325,28 +406,41 @@ function recalc() {
   const remaining = document.getElementById('remaining-display');
   if (remaining) remaining.value = fmt(Math.max(0, total - paid)) + ' đ';
 }
+
 function bindRow() {
-  document.querySelectorAll('#items-tbody .qty, #items-tbody .price, #items-tbody .disc').forEach(inp => {
-    inp.oninput = recalc;
+  document.querySelectorAll('#items-tbody tr').forEach(row => {
+    const sel = row.querySelector('.prod-pick');
+    if (sel && !sel.dataset.bound) {
+      sel.addEventListener('change', () => { fillFromProduct(row); recalc(); });
+      sel.dataset.bound = '1';
+    }
+    const qty = row.querySelector('.qty');
+    if (qty && !qty.dataset.bound) {
+      qty.addEventListener('input', recalc);
+      // Ép số nguyên: bỏ dấu chấm/phẩy/chữ
+      qty.addEventListener('blur', () => {
+        const v = parseInt(qty.value || 0, 10);
+        qty.value = isFinite(v) && v > 0 ? v : '';
+      });
+      qty.dataset.bound = '1';
+    }
   });
 }
+
 document.getElementById('vat-percent').oninput = recalc;
 const paidInput = document.querySelector('[name=paid_amount]');
 if (paidInput) paidInput.oninput = recalc;
 
-// Picker từ danh mục
-document.getElementById('product-picker').onchange = function() {
-  const opt = this.options[this.selectedIndex];
-  if (!opt.value) return;
-  addRow({
-    id: opt.value,
-    name: opt.dataset.name,
-    unit: opt.dataset.unit,
-    packaging: opt.dataset.packaging,
-    price: opt.dataset.price
-  });
-  this.value = '';
-};
+// Khởi tạo: với mỗi row có sẵn, đọc lại data từ option được selected
+document.querySelectorAll('#items-tbody tr').forEach(row => {
+  // Đối với row được render từ server (edit mode), price-disp đã có giá trị tiền VN
+  // nhưng dataset.raw chưa có -> đọc từ option đang select.
+  const sel = row.querySelector('.prod-pick');
+  const opt = sel?.options[sel.selectedIndex];
+  if (opt && opt.value) {
+    row.querySelector('.price-disp').dataset.raw = parseFloat(opt.dataset.price || 0);
+  }
+});
 
 bindRow();
 recalc();

@@ -1178,48 +1178,45 @@ def dashboard():
 # ---------- ORDERS (Đặt Hàng) ----------
 # ============================================================
 def _parse_order_items(form):
+    """Đọc các dòng item từ form mới: chỉ cần product_id + qty (nguyên).
+    Các thông tin khác (tên SP, ĐVT, quy cách, đơn giá) lấy tự động từ
+    bảng products do KBC tạo. KHÔNG còn chiết khấu."""
     items = []
-    names = form.getlist('item_product_name[]')
     prod_ids = form.getlist('item_product_id[]')
-    units = form.getlist('item_unit[]')
-    packagings = form.getlist('item_packaging[]')
     qtys = form.getlist('item_qty[]')
-    prices = form.getlist('item_unit_price[]')
-    discounts = form.getlist('item_discount[]')
-    notes = form.getlist('item_note[]')
-    for i, nm in enumerate(names):
-        nm = (nm or '').strip()
-        if not nm:
+    db = get_db()
+    for i, pid_str in enumerate(prod_ids):
+        pid_str = (pid_str or '').strip()
+        if not pid_str:
             continue
-        def _f(lst, idx, default=0.0):
-            try:
-                return float((lst[idx] or '0').replace(',', '').strip()) if idx < len(lst) else default
-            except (ValueError, AttributeError):
-                return default
-        def _s(lst, idx):
-            return (lst[idx] if idx < len(lst) else '') or ''
-        def _i(lst, idx):
-            v = lst[idx] if idx < len(lst) else None
-            try:
-                return int(v) if v else None
-            except (ValueError, TypeError):
-                return None
-        qty = _f(qtys, i)
-        price = _f(prices, i)
-        discount_pct = max(0.0, min(100.0, _f(discounts, i)))
+        try:
+            pid = int(pid_str)
+        except (ValueError, TypeError):
+            continue
+        p = db.execute('SELECT * FROM products WHERE id=?', (pid,)).fetchone()
+        if not p:
+            continue
+        # SL là số nguyên — bỏ phần thập phân nếu user nhập
+        try:
+            qty_raw = (qtys[i] if i < len(qtys) else '0') or '0'
+            qty = int(float(str(qty_raw).replace(',', '').strip()))
+        except (ValueError, AttributeError):
+            qty = 0
+        if qty <= 0:
+            continue
+        price = float(p['default_price'] or 0)
         amount = qty * price
-        amount_after = max(0, amount - amount * discount_pct / 100.0)
         items.append({
-            'product_id': _i(prod_ids, i),
-            'product_name': nm,
-            'unit': _s(units, i).strip(),
-            'packaging': _s(packagings, i).strip(),
+            'product_id': pid,
+            'product_name': p['name'],
+            'unit': p['unit'] or '',
+            'packaging': p['packaging'] or '',
             'qty': qty,
             'unit_price': price,
             'amount': amount,
-            'discount': discount_pct,
-            'amount_after': amount_after,
-            'note': _s(notes, i).strip(),
+            'discount': 0,          # bỏ chiết khấu
+            'amount_after': amount, # = amount vì không có CK
+            'note': '',
             'sort_order': i,
         })
     return items
@@ -1288,6 +1285,15 @@ def orders_list():
     return render_template('orders_list.html', orders=rows, current_status=status_filter)
 
 
+def _get_hp89_approvers():
+    """Trả về list user thuộc HP89 (hoặc admin) có quyền duyệt đơn HP89."""
+    rows = get_db().execute(
+        "SELECT * FROM users WHERE organization='HP89' OR role='admin' "
+        "ORDER BY full_name, username"
+    ).fetchall()
+    return [r for r in rows if User(r).has_cap('approve_hp89_order')]
+
+
 @app.route('/orders/new', methods=['GET', 'POST'])
 @login_required
 @require_cap('create_order')
@@ -1297,8 +1303,9 @@ def order_new():
         return _save_order(None)
     products = db.execute('SELECT * FROM products WHERE active=1 ORDER BY name').fetchall()
     invoice_entities = db.execute('SELECT * FROM invoice_entities ORDER BY company_name').fetchall()
+    hp89_approvers = _get_hp89_approvers()
     return render_template('order_form.html', order=None, items=[], products=products,
-                           invoice_entities=invoice_entities)
+                           invoice_entities=invoice_entities, hp89_approvers=hp89_approvers)
 
 
 def _save_order(order_id):
@@ -1441,8 +1448,9 @@ def order_edit(oid):
     items = db.execute('SELECT * FROM order_items WHERE order_id=? ORDER BY sort_order, id', (oid,)).fetchall()
     products = db.execute('SELECT * FROM products WHERE active=1 ORDER BY name').fetchall()
     invoice_entities = db.execute('SELECT * FROM invoice_entities ORDER BY company_name').fetchall()
+    hp89_approvers = _get_hp89_approvers()
     return render_template('order_form.html', order=o, items=items, products=products,
-                           invoice_entities=invoice_entities)
+                           invoice_entities=invoice_entities, hp89_approvers=hp89_approvers)
 
 
 @app.route('/orders/<int:oid>/delete', methods=['POST'])
