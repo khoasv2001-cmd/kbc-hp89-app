@@ -2859,6 +2859,19 @@ def push_unsubscribe():
     return jsonify(ok=True)
 
 
+@app.route('/push/config')
+@login_required
+def push_config():
+    """Trả về trạng thái cấu hình Web Push để debug từ client."""
+    return jsonify(
+        vapid_configured=bool(VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY),
+        vapid_public_key_length=len(VAPID_PUBLIC_KEY) if VAPID_PUBLIC_KEY else 0,
+        vapid_public_key_preview=(VAPID_PUBLIC_KEY[:20] + '...') if VAPID_PUBLIC_KEY else '',
+        vapid_claim_email=VAPID_CLAIM_EMAIL,
+        app_base_url=APP_BASE_URL or '(not set)',
+    )
+
+
 @app.route('/push/test', methods=['POST'])
 @login_required
 def push_test():
