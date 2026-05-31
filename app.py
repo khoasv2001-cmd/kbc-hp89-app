@@ -59,6 +59,10 @@ MAX_UPLOAD_MB = 100
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'change-me-in-production-kbc-hp89')
 app.config['MAX_CONTENT_LENGTH'] = MAX_UPLOAD_MB * 1024 * 1024
+# Duy trì đăng nhập 30 ngày khi user tick "Duy trì trạng thái đăng nhập"
+app.config['REMEMBER_COOKIE_DURATION'] = timedelta(days=30)
+app.config['REMEMBER_COOKIE_HTTPONLY'] = True
+app.config['REMEMBER_COOKIE_SAMESITE'] = 'Lax'
 
 VAPID_PUBLIC_KEY = os.environ.get('VAPID_PUBLIC_KEY', '')
 VAPID_PRIVATE_KEY = os.environ.get('VAPID_PRIVATE_KEY', '')
@@ -948,9 +952,10 @@ def login():
     if request.method == 'POST':
         username = request.form.get('username', '').strip()
         password = request.form.get('password', '')
+        remember = request.form.get('remember') == 'on'
         row = get_db().execute('SELECT * FROM users WHERE username=?', (username,)).fetchone()
         if row and check_password_hash(row['password_hash'], password):
-            login_user(User(row))
+            login_user(User(row), remember=remember)
             return redirect(url_for('dashboard'))
         flash('Sai tên đăng nhập hoặc mật khẩu', 'danger')
     return render_template('login.html')

@@ -57,6 +57,17 @@
     .footer-note {
       text-align: center; margin-top: 16px; font-size: 11px; color: #999;
     }
+    .remember-wrap {
+      display: flex; align-items: center; gap: 8px;
+      margin-top: 14px; font-size: 13px; color: #3a1f1f;
+      user-select: none;
+    }
+    .remember-wrap input[type=checkbox] {
+      width: 16px; height: 16px; accent-color: #c61c2d; cursor: pointer;
+    }
+    .remember-wrap label {
+      margin: 0; font-weight: 500; cursor: pointer;
+    }
   </style>
 </head>
 <body>
@@ -76,6 +87,10 @@
       <input type="text" name="username" autofocus required>
       <label>Mật khẩu</label>
       <input type="password" name="password" required>
+      <div class="remember-wrap">
+        <input type="checkbox" id="remember" name="remember" checked>
+        <label for="remember">Duy trì trạng thái đăng nhập (30 ngày)</label>
+      </div>
       <button type="submit">Đăng nhập</button>
     </form>
     <div class="footer-note">© KBC-HP89 · Liên hệ admin nếu quên mật khẩu</div>
