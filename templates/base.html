@@ -245,10 +245,17 @@
         {% endif %}
       });
 
-      // Nhận message từ service worker (khi có push) -> phát âm
+      // Nhận message từ service worker (khi có push) -> phát âm + rung
       navigator.serviceWorker.addEventListener('message', function(e) {
         if (e.data && (e.data.type === 'noti-speak' || e.data.type === 'noti-new')) {
           playKBCSound();
+          // navigator.vibrate (Vibration API) khac voi vibrate trong Notification API.
+          // Vibration API van hoat dong tren Chrome Android khi PWA dang mo.
+          try {
+            if (navigator.vibrate) {
+              navigator.vibrate([400, 200, 400, 200, 400]);
+            }
+          } catch (err) {}
         }
       });
     }

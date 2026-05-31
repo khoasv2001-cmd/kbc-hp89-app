@@ -301,7 +301,13 @@ async function testPush() {
       if (typeof playKBCSound === 'function') {
         try { playKBCSound(); } catch (e) {}
       }
-      alert('🧪 Đã gửi thử. Trên điện thoại sẽ hiện thông báo nổi kèm âm trong vài giây tới.');
+      // Rung ngay qua Vibration API (khac voi notification.vibrate da bi Chrome Android disable)
+      try {
+        if (navigator.vibrate) {
+          navigator.vibrate([400, 200, 400, 200, 400]);
+        }
+      } catch (e) {}
+      alert('🧪 Đã gửi thử. Trên điện thoại sẽ hiện thông báo nổi kèm âm + rung trong vài giây tới.');
     } else {
       alert('Lỗi gửi thử.');
     }
