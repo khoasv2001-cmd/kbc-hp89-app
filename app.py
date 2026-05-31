@@ -761,17 +761,24 @@ app.jinja_env.globals['ORG_LABELS'] = ORG_LABELS
 
 # ---------- Notifications ----------
 def send_web_push_to_user(user_id, title, body, url=None):
+    """Tra ve dict de debug: {ok, sent, dead, errors, no_vapid, no_sub}"""
+    result = {'ok': False, 'sent': 0, 'dead': 0, 'errors': [],
+              'no_vapid': False, 'no_sub': False, 'total_subs': 0}
     if not (user_id and VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY):
-        return
+        result['no_vapid'] = True
+        return result
     try:
         from pywebpush import webpush, WebPushException
     except ImportError:
-        return
+        result['errors'].append('pywebpush chua cai dat')
+        return result
     db = get_db()
     rows = db.execute('SELECT id, subscription FROM push_subscriptions WHERE user_id=?',
                       (user_id,)).fetchall()
+    result['total_subs'] = len(rows)
     if not rows:
-        return
+        result['no_sub'] = True
+        return result
     payload = json.dumps({'title': title, 'body': body, 'url': url or '/'})
     dead = []
     for r in rows:
@@ -782,14 +789,19 @@ def send_web_push_to_user(user_id, title, body, url=None):
                 vapid_private_key=VAPID_PRIVATE_KEY,
                 vapid_claims={'sub': VAPID_CLAIM_EMAIL},
             )
+            result['sent'] += 1
         except WebPushException as e:
             status = getattr(getattr(e, 'response', None), 'status_code', None)
+            result['errors'].append(f'WebPush {status}: {str(e)[:200]}')
             if status in (404, 410):
                 dead.append(r['id'])
-        except Exception:
-            pass
+        except Exception as e:
+            result['errors'].append(f'{type(e).__name__}: {str(e)[:200]}')
     for sid in dead:
         db.execute('DELETE FROM push_subscriptions WHERE id=?', (sid,))
+    result['dead'] = len(dead)
+    result['ok'] = result['sent'] > 0
+    return result
 
 
 def create_notification(user_id, message, link=None):
@@ -2880,11 +2892,11 @@ def push_config():
 @app.route('/push/test', methods=['POST'])
 @login_required
 def push_test():
-    send_web_push_to_user(current_user.id, 'KBC-HP89',
-                          'Thông báo thử - nếu thấy dòng này thì đã hoạt động!',
-                          url_for('notifications_list'))
+    result = send_web_push_to_user(current_user.id, 'KBC-HP89',
+                                   'Thông báo thử - nếu thấy dòng này thì đã hoạt động!',
+                                   url_for('notifications_list'))
     get_db().commit()
-    return jsonify(ok=True)
+    return jsonify(**result)
 
 
 # ============================================================

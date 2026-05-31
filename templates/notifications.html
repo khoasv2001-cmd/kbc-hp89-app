@@ -296,21 +296,30 @@ async function disablePush() {
 async function testPush() {
   try {
     const r = await fetch('/push/test', {method: 'POST'});
-    if (r.ok) {
-      // Phát âm KBC Ginseng ngay để user nghe (push system có thể delay vài giây)
-      if (typeof playKBCSound === 'function') {
-        try { playKBCSound(); } catch (e) {}
-      }
-      // Rung ngay qua Vibration API (khac voi notification.vibrate da bi Chrome Android disable)
-      try {
-        if (navigator.vibrate) {
-          navigator.vibrate([400, 200, 400, 200, 400]);
-        }
-      } catch (e) {}
-      alert('🧪 Đã gửi thử. Trên điện thoại sẽ hiện thông báo nổi kèm âm + rung trong vài giây tới.');
-    } else {
-      alert('Lỗi gửi thử.');
+    const data = await r.json();
+    // Phát âm + rung ngay tại trang (test client-side vibration)
+    if (typeof playKBCSound === 'function') {
+      try { playKBCSound(); } catch (e) {}
     }
+    try {
+      if (navigator.vibrate) {
+        navigator.vibrate([400, 200, 400, 200, 400]);
+      }
+    } catch (e) {}
+    // Hien thi ket qua debug
+    let msg = '🧪 Kết quả gửi thử:\n\n';
+    msg += `• Subscription đã đăng ký: ${data.total_subs}\n`;
+    msg += `• Gửi thành công: ${data.sent}\n`;
+    msg += `• Subscription chết (đã xoá): ${data.dead}\n`;
+    if (data.no_vapid) msg += '⚠️ Server chưa cấu hình VAPID key!\n';
+    if (data.no_sub) msg += '⚠️ Chưa có subscription nào cho user này. Hãy bấm "Bật thông báo nổi" trước.\n';
+    if (data.errors && data.errors.length) {
+      msg += '\n❌ LỖI:\n' + data.errors.join('\n');
+    }
+    if (data.sent > 0) {
+      msg += '\n\n✅ Push đã gửi đi. Trong vài giây sẽ hiện thông báo + rung.';
+    }
+    alert(msg);
   } catch (e) {
     alert('Lỗi: ' + e.message);
   }
