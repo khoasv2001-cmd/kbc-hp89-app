@@ -781,6 +781,10 @@ def send_web_push_to_user(user_id, title, body, url=None):
                 data=payload,
                 vapid_private_key=VAPID_PRIVATE_KEY,
                 vapid_claims={'sub': VAPID_CLAIM_EMAIL},
+                # Urgency=high -> Android coi la noti quan trong, ap dung rung va am thanh.
+                # TTL 1 ngay de noti khong bi drop neu thiet bi offline tam thoi.
+                headers={'Urgency': 'high'},
+                ttl=86400,
             )
         except WebPushException as e:
             status = getattr(getattr(e, 'response', None), 'status_code', None)

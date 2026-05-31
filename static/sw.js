@@ -1,6 +1,6 @@
 // Service worker PWA cho KBC-HP89
 // Network-first cho /static; trang dong khong cache de tranh stale.
-const CACHE = 'kbc-hp89-v3';
+const CACHE = 'kbc-hp89-v4';
 const PRECACHE = [
   '/static/style.css',
   '/static/icon-192.png',
@@ -54,9 +54,12 @@ self.addEventListener('push', (event) => {
     body: data.body || '',
     icon: '/static/icon-192.png',
     badge: '/static/icon-192.png',
-    vibrate: [200, 100, 200],
+    // Vibrate pattern dai va manh hon (Android se ap dung neu duoc OS cho phep)
+    vibrate: [400, 200, 400, 200, 400],
     tag: 'kbc-hp89-noti',
     renotify: true,
+    requireInteraction: true,  // Noti o lai den khi user tuong tac
+    silent: false,             // Bao OS day la noti co am thanh + rung
     data: { url: data.url || '/' }
   };
   event.waitUntil(
