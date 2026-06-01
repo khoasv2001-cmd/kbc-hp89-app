@@ -15,7 +15,7 @@ import io
 import json
 import zipfile
 import tempfile
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.mime.base import MIMEBase
@@ -36,6 +36,22 @@ from openpyxl import Workbook
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# ======= Mui gio Viet Nam (UTC+7) =======
+# Render server chay UTC, can convert ve gio VN cho tat ca timestamp luu DB va hien thi.
+VN_TZ = timezone(timedelta(hours=7))
+
+
+def vn_now():
+    """Tra ve datetime hien tai theo gio Viet Nam (naive datetime, da +7h tu UTC).
+    Dung de luu created_at/updated_at/... trong DB - thay the cho vn_now()."""
+    return datetime.now(VN_TZ).replace(tzinfo=None)
+
+
+def vn_today():
+    """Tra ve date hom nay theo gio Viet Nam. Thay the cho vn_today()."""
+    return vn_now().date()
+
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.environ.get('DATA_DIR', BASE_DIR)
@@ -383,7 +399,7 @@ def init_db():
         conn.execute(
             'INSERT INTO users(username, password_hash, full_name, role, organization, created_at) VALUES (?,?,?,?,?,?)',
             ('admin', generate_password_hash('admin123'), 'Quản trị viên', 'admin', 'KBC',
-             datetime.now().isoformat(timespec='seconds'))
+             vn_now().isoformat(timespec='seconds'))
         )
         print('>>> Default admin created: admin / admin123 (CHANGE PASSWORD AFTER FIRST LOGIN!)')
     conn.commit()
@@ -640,7 +656,7 @@ def save_upload(file_storage, subdir):
         flash(f'File không hợp lệ: {file_storage.filename}', 'danger')
         return None, None
     safe = secure_filename(file_storage.filename)
-    stamp = datetime.now().strftime('%Y%m%d_%H%M%S_%f')
+    stamp = vn_now().strftime('%Y%m%d_%H%M%S_%f')
     final_name = f'{stamp}_{safe}'
     path = os.path.join(subdir, final_name)
     file_storage.save(path)
@@ -709,7 +725,7 @@ def contract_status(due_date_str):
     d = parse_date(due_date_str)
     if not d:
         return 'none', None
-    today = date.today()
+    today = vn_today()
     days = (d - today).days
     if days < 0:
         return 'overdue', days
@@ -798,7 +814,7 @@ def log_activity(action, entity_type=None, entity_id=None, description=None,
             'VALUES (?,?,?,?,?,?,?,?,?,?)',
             (user_id, username, user_org, action, entity_type, entity_id,
              (description or '')[:500], ip, ua,
-             datetime.now().isoformat(timespec='seconds'))
+             vn_now().isoformat(timespec='seconds'))
         )
         # caller tu commit
     except Exception:
@@ -855,7 +871,7 @@ def create_notification(user_id, message, link=None):
         return
     db = get_db()
     db.execute('INSERT INTO notifications(user_id, message, link, is_read, created_at) VALUES (?,?,?,0,?)',
-               (user_id, message, link, datetime.now().isoformat(timespec='seconds')))
+               (user_id, message, link, vn_now().isoformat(timespec='seconds')))
     send_web_push_to_user(user_id, 'KBC-HP89', message, link)
 
 
@@ -1159,7 +1175,7 @@ def user_new():
                 cur = db.execute(
                     'INSERT INTO users(username, password_hash, full_name, email, role, organization, permissions, created_at) VALUES (?,?,?,?,?,?,?,?)',
                     (username, generate_password_hash(password), full_name, email, role, organization, permissions,
-                     datetime.now().isoformat(timespec='seconds'))
+                     vn_now().isoformat(timespec='seconds'))
                 )
                 log_activity('user.create', 'user', cur.lastrowid,
                              f'Tạo tài khoản "{username}" ({full_name}) - vai trò: {role}, tổ chức: {organization}')
@@ -1535,7 +1551,7 @@ def _save_order(order_id):
     oth, _ = save_upload(request.files.get('other_file'), ORDER_DIR)
     wh, _ = save_upload(request.files.get('warehouse_file'), ORDER_DIR)
 
-    now = datetime.now().isoformat(timespec='seconds')
+    now = vn_now().isoformat(timespec='seconds')
     fields = (code,
               request.form.get('order_date') or None,
               customer_name,
@@ -1733,7 +1749,7 @@ def _do_submit_order(oid):
         return False, 'Đơn không tồn tại'
     if o['workflow_status'] != 'draft':
         return False, 'Đơn không ở trạng thái Nháp'
-    now = datetime.now().isoformat(timespec='seconds')
+    now = vn_now().isoformat(timespec='seconds')
     db.execute('UPDATE orders SET workflow_status=?, submitted_at=?, updated_at=? WHERE id=?',
                ('pending_hp89', now, now, oid))
     link = url_for('order_view', oid=oid)
@@ -1807,7 +1823,7 @@ def order_approve_hp89(oid):
         flash('Đơn không ở trạng thái Chờ HP89 duyệt', 'warning')
         return redirect(url_for('order_view', oid=oid))
     db = get_db()
-    now = datetime.now().isoformat(timespec='seconds')
+    now = vn_now().isoformat(timespec='seconds')
     db.execute('''UPDATE orders SET workflow_status=?, approved_by=?, approved_at=?, updated_at=?
                   WHERE id=?''',
                ('approved_hp89', current_user.id, now, now, oid))
@@ -1875,7 +1891,7 @@ def order_reject_hp89(oid):
         flash('Đơn không ở trạng thái Chờ HP89 duyệt', 'warning')
         return redirect(url_for('order_view', oid=oid))
     db = get_db()
-    now = datetime.now().isoformat(timespec='seconds')
+    now = vn_now().isoformat(timespec='seconds')
     note = request.form.get('note', '').strip()
     db.execute('UPDATE orders SET workflow_status=?, updated_at=? WHERE id=?',
                ('draft', now, oid))
@@ -1901,7 +1917,7 @@ def order_receive_kbc(oid):
         flash('Đơn chưa được Lãnh đạo HP89 duyệt, chưa thể nhận', 'warning')
         return redirect(url_for('order_view', oid=oid))
     db = get_db()
-    now = datetime.now().isoformat(timespec='seconds')
+    now = vn_now().isoformat(timespec='seconds')
     db.execute('''UPDATE orders SET workflow_status=?, received_by=?, received_at=?, updated_at=?
                   WHERE id=?''',
                ('received_kbc', current_user.id, now, now, oid))
@@ -1928,7 +1944,7 @@ def order_deliver_kbc(oid):
         flash('Đơn chưa ở trạng thái KBC đã nhận, chưa thể tick giao', 'warning')
         return redirect(url_for('order_view', oid=oid))
     db = get_db()
-    now = datetime.now().isoformat(timespec='seconds')
+    now = vn_now().isoformat(timespec='seconds')
     db.execute('''UPDATE orders SET workflow_status=?, delivered_by=?, delivered_at=?, updated_at=?
                   WHERE id=?''',
                ('delivered_kbc', current_user.id, now, now, oid))
@@ -1986,7 +2002,7 @@ def order_reopen(oid):
     """Admin mở lại đơn về trạng thái Nháp (trường hợp cần điều chỉnh)."""
     o = _order_or_404(oid)
     db = get_db()
-    now = datetime.now().isoformat(timespec='seconds')
+    now = vn_now().isoformat(timespec='seconds')
     db.execute('''UPDATE orders SET workflow_status='draft', approved_by=NULL, approved_at=NULL,
                   received_by=NULL, received_at=NULL, delivered_by=NULL, delivered_at=NULL,
                   submitted_at=NULL, updated_at=? WHERE id=?''', (now, oid))
@@ -2175,7 +2191,7 @@ def contract_new():
         except ValueError:
             pct = 0
         rcv_ids, rcv_names, rcv_emails = receivers_from_form(request.form)
-        now = datetime.now().isoformat(timespec='seconds')
+        now = vn_now().isoformat(timespec='seconds')
         db = get_db()
         cur = db.execute('''INSERT INTO contracts
             (code, title, partner, supplier_tax, contact_person, contact_phone,
@@ -2293,7 +2309,7 @@ def contract_edit(cid):
                     request.form.get('notes', '').strip(),
                     files_state['contract_file'], files_state['handover_file'],
                     files_state['appendix_file'], files_state['invoice_file'], files_state['other_file'],
-                    datetime.now().isoformat(timespec='seconds'), cid))
+                    vn_now().isoformat(timespec='seconds'), cid))
         log_activity('contract.update', 'contract', cid, f'Sửa hợp đồng "{title}"')
         db.commit()
         flash('Đã cập nhật hợp đồng', 'success')
@@ -2407,7 +2423,7 @@ def attach_upload(rtype, rid, category):
         if stored:
             db.execute('''INSERT INTO attachments(record_type, record_id, category, stored_name, original_name, created_at)
                           VALUES (?,?,?,?,?,?)''',
-                       (rtype, rid, category, stored, orig, datetime.now().isoformat(timespec='seconds')))
+                       (rtype, rid, category, stored, orig, vn_now().isoformat(timespec='seconds')))
             saved += 1
     db.commit()
     flash(f'Đã tải lên {saved} file', 'success' if saved else 'warning')
@@ -2464,7 +2480,7 @@ def add_comment(rtype, rid):
         db.execute('''INSERT INTO comments(record_type, record_id, user_id, content, created_at)
                      VALUES (?,?,?,?,?)''',
                    (rtype, rid, current_user.id, content,
-                    datetime.now().isoformat(timespec='seconds')))
+                    vn_now().isoformat(timespec='seconds')))
         db.commit()
         flash('Đã thêm nhận xét', 'success')
     return redirect(_record_back_url(rtype, rid) + '#comments')
@@ -2558,7 +2574,7 @@ def _save_media(post_id):
     planned_date = request.form.get('planned_date') or None
     link_val = request.form.get('link', '').strip()
     notes = request.form.get('notes', '').strip()
-    now = datetime.now().isoformat(timespec='seconds')
+    now = vn_now().isoformat(timespec='seconds')
 
     if is_new:
         cur = db.execute('''INSERT INTO media_posts
@@ -2696,7 +2712,7 @@ def media_submit(mid):
     if m['status'] not in ('draft', 'revision'):
         flash('Bài đang ở trạng thái không thể gửi duyệt', 'warning')
         return redirect(url_for('media_view', mid=mid))
-    now = datetime.now().isoformat(timespec='seconds')
+    now = vn_now().isoformat(timespec='seconds')
     db.execute("UPDATE media_posts SET status='pending', submitted_at=?, updated_at=? WHERE id=?",
                (now, now, mid))
     link = url_for('media_view', mid=mid)
@@ -2718,7 +2734,7 @@ def media_approve(mid):
     m = db.execute('SELECT * FROM media_posts WHERE id=?', (mid,)).fetchone()
     if not m:
         abort(404)
-    now = datetime.now().isoformat(timespec='seconds')
+    now = vn_now().isoformat(timespec='seconds')
     db.execute('''UPDATE media_posts SET status='approved', confirmed_by=?, confirmed_at=?,
                   revision_note=NULL, updated_at=? WHERE id=?''',
                (current_user.id, now, now, mid))
@@ -2741,7 +2757,7 @@ def media_request_revision(mid):
     if not m:
         abort(404)
     note = request.form.get('revision_note', '').strip()
-    now = datetime.now().isoformat(timespec='seconds')
+    now = vn_now().isoformat(timespec='seconds')
     db.execute('''UPDATE media_posts SET status='revision', revision_note=?, updated_at=? WHERE id=?''',
                (note, now, mid))
     link = url_for('media_view', mid=mid)
@@ -2770,7 +2786,7 @@ def media_publish(mid):
         flash('Chỉ bài đã được KBC duyệt mới đánh dấu được Đã đăng', 'warning')
         return redirect(url_for('media_view', mid=mid))
     link_val = request.form.get('link', '').strip()
-    now = datetime.now().isoformat(timespec='seconds')
+    now = vn_now().isoformat(timespec='seconds')
     db.execute("UPDATE media_posts SET status='published', link=?, updated_at=? WHERE id=?",
                (link_val, now, mid))
     log_activity('media.publish', 'media', mid, f'Đánh dấu đã đăng bài "{m["title"]}"')
@@ -2808,7 +2824,7 @@ def product_new():
                      VALUES (?,?,?,?,1,?)''',
                    (name, request.form.get('unit', '').strip(),
                     request.form.get('packaging', '').strip(),
-                    price, datetime.now().isoformat(timespec='seconds')))
+                    price, vn_now().isoformat(timespec='seconds')))
         log_activity('product.create', 'product', cur.lastrowid, f'Thêm sản phẩm "{name}"')
         db.commit()
         flash(f'Đã thêm sản phẩm "{name}"', 'success')
@@ -2879,7 +2895,7 @@ def api_invoice_entities():
         company_name = (data.get('company_name') or '').strip()
         if not company_name:
             return jsonify({'error': 'Tên đơn vị không được trống'}), 400
-        now = datetime.now().isoformat(timespec='seconds')
+        now = vn_now().isoformat(timespec='seconds')
         cur = db.execute(
             'INSERT INTO invoice_entities(company_name, tax_code, address, email, phone, created_by, created_at) VALUES (?,?,?,?,?,?,?)',
             (company_name, (data.get('tax_code') or '').strip(),
@@ -2952,7 +2968,7 @@ def push_subscribe():
         return jsonify(ok=False, error='Thiếu thông tin đăng ký'), 400
     endpoint = sub['endpoint']
     sub_json = json.dumps(sub)
-    now = datetime.now().isoformat(timespec='seconds')
+    now = vn_now().isoformat(timespec='seconds')
     db = get_db()
     existing = db.execute('SELECT id FROM push_subscriptions WHERE endpoint=?', (endpoint,)).fetchone()
     if existing:
@@ -3180,7 +3196,7 @@ def report_orders():
     buf = io.BytesIO()
     wb.save(buf)
     buf.seek(0)
-    fn = f'bao_cao_don_hang_{date.today().isoformat()}.xlsx'
+    fn = f'bao_cao_don_hang_{vn_today().isoformat()}.xlsx'
     return send_file(buf, as_attachment=True, download_name=fn,
                      mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
@@ -3221,7 +3237,7 @@ def report_contracts():
     buf = io.BytesIO()
     wb.save(buf)
     buf.seek(0)
-    fn = f'bao_cao_hop_dong_{date.today().isoformat()}.xlsx'
+    fn = f'bao_cao_hop_dong_{vn_today().isoformat()}.xlsx'
     return send_file(buf, as_attachment=True, download_name=fn,
                      mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
@@ -3255,7 +3271,7 @@ def report_media():
     buf = io.BytesIO()
     wb.save(buf)
     buf.seek(0)
-    fn = f'bao_cao_truyen_thong_{date.today().isoformat()}.xlsx'
+    fn = f'bao_cao_truyen_thong_{vn_today().isoformat()}.xlsx'
     return send_file(buf, as_attachment=True, download_name=fn,
                      mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
@@ -3366,10 +3382,10 @@ def legal_new():
                 return render_template('legal_form.html', options=options, action='new',
                                        form=request.form)
             original_name = secure_filename(f.filename)
-            stored_name = f'{datetime.now().strftime("%Y%m%d%H%M%S%f")}_{original_name}'
+            stored_name = f'{vn_now().strftime("%Y%m%d%H%M%S%f")}_{original_name}'
             f.save(os.path.join(LEGAL_DIR, stored_name))
 
-        now = datetime.now().isoformat(timespec='seconds')
+        now = vn_now().isoformat(timespec='seconds')
         cur = db.execute(
             '''INSERT INTO legal_nodes(title, parent_id, description, stored_name, original_name,
                approval_status, created_by, created_at, updated_at)
@@ -3426,9 +3442,9 @@ def legal_edit(nid):
                 if os.path.exists(old_path):
                     os.remove(old_path)
             original_name = secure_filename(f.filename)
-            stored_name = f'{datetime.now().strftime("%Y%m%d%H%M%S%f")}_{original_name}'
+            stored_name = f'{vn_now().strftime("%Y%m%d%H%M%S%f")}_{original_name}'
             f.save(os.path.join(LEGAL_DIR, stored_name))
-        now = datetime.now().isoformat(timespec='seconds')
+        now = vn_now().isoformat(timespec='seconds')
         db.execute(
             '''UPDATE legal_nodes SET title=?, parent_id=?, description=?,
                stored_name=?, original_name=?, approval_status='pending',
@@ -3470,7 +3486,7 @@ def legal_approve(nid):
     node = db.execute('SELECT * FROM legal_nodes WHERE id=?', (nid,)).fetchone()
     if not node:
         abort(404)
-    now = datetime.now().isoformat(timespec='seconds')
+    now = vn_now().isoformat(timespec='seconds')
     note = request.form.get('approval_note', '').strip()
     db.execute(
         '''UPDATE legal_nodes SET approval_status='approved', approved_by=?,
@@ -3496,7 +3512,7 @@ def legal_reject(nid):
     node = db.execute('SELECT * FROM legal_nodes WHERE id=?', (nid,)).fetchone()
     if not node:
         abort(404)
-    now = datetime.now().isoformat(timespec='seconds')
+    now = vn_now().isoformat(timespec='seconds')
     note = request.form.get('approval_note', '').strip()
     db.execute(
         '''UPDATE legal_nodes SET approval_status='rejected', approved_by=?,
@@ -3554,7 +3570,7 @@ def admin_backup():
         except OSError:
             pass
     mem.seek(0)
-    name = 'backup_kbc_hp89_' + datetime.now().strftime('%Y%m%d_%H%M%S') + '.zip'
+    name = 'backup_kbc_hp89_' + vn_now().strftime('%Y%m%d_%H%M%S') + '.zip'
     return send_file(mem, as_attachment=True, download_name=name, mimetype='application/zip')
 
 
