@@ -1,0 +1,235 @@
+{% extends 'base.html' %}
+{% block title %}Lịch sử hoạt động – KBC-HP89{% endblock %}
+
+{% block content %}
+<style>
+  .log-filters {
+    background: #fff; padding: 14px 16px; border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0,0,0,.08); margin-bottom: 14px;
+  }
+  .log-filters form { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; }
+  .log-filters label { font-size: 12px; font-weight: 600; color: #555; display: block; margin-bottom: 3px; }
+  .log-filters input, .log-filters select {
+    padding: 6px 10px; border: 1px solid #d0d7de; border-radius: 5px; font-size: 13px;
+    background: #fff;
+  }
+  .log-filters input[type=text] { min-width: 180px; }
+  .log-filters .btn {
+    padding: 7px 14px; background: var(--kbc-red); color: #fff; border: 0; border-radius: 5px;
+    font-weight: 600; cursor: pointer; font-size: 13px;
+  }
+  .log-filters .btn:hover { background: var(--kbc-red-dark); }
+  .log-filters .btn-clear {
+    background: #6c757d; text-decoration: none; display: inline-block; line-height: 1;
+  }
+  .log-filters .btn-clear:hover { background: #4d5358; }
+
+  .log-table-wrap { background: #fff; border-radius: 8px; overflow: hidden;
+                    box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+  .log-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .log-table th { background: var(--kbc-red); color: #fff; text-align: left;
+                  padding: 10px 12px; font-weight: 600; font-size: 12px;
+                  text-transform: uppercase; letter-spacing: .3px; }
+  .log-table td { padding: 9px 12px; border-bottom: 1px solid #f0f0f0; vertical-align: top; }
+  .log-table tr:hover { background: #fafafa; }
+  .log-table tr:last-child td { border-bottom: 0; }
+
+  .badge-action {
+    display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px;
+    font-weight: 600; white-space: nowrap;
+  }
+  .badge-auth { background: #e3f2fd; color: #1565c0; }
+  .badge-auth-fail { background: #ffebee; color: #c62828; }
+  .badge-user { background: #f3e5f5; color: #6a1b9a; }
+  .badge-order { background: #fff3e0; color: #e65100; }
+  .badge-contract { background: #e8f5e9; color: #2e7d32; }
+  .badge-legal { background: #fce4ec; color: #ad1457; }
+  .badge-media { background: #e0f7fa; color: #006064; }
+  .badge-product { background: #f1f8e9; color: #558b2f; }
+  .badge-create { background: #c8e6c9; color: #1b5e20; }
+  .badge-update { background: #bbdefb; color: #0d47a1; }
+  .badge-delete { background: #ffcdd2; color: #b71c1c; }
+
+  .badge-org-kbc { background: var(--kbc-gold); color: var(--kbc-red-dark);
+                   padding: 1px 7px; border-radius: 8px; font-size: 10px; font-weight: 700; }
+  .badge-org-hp89 { background: #e0e0e0; color: #333;
+                    padding: 1px 7px; border-radius: 8px; font-size: 10px; font-weight: 700; }
+
+  .log-time { color: #888; font-size: 11px; white-space: nowrap; }
+  .log-username { font-weight: 600; color: #333; }
+  .log-desc { color: #444; }
+  .log-ip { color: #999; font-size: 11px; font-family: monospace; }
+
+  .pagination { display: flex; gap: 5px; justify-content: center; margin: 16px 0 8px;
+                flex-wrap: wrap; }
+  .pagination a, .pagination span {
+    padding: 6px 12px; border: 1px solid #d0d7de; border-radius: 5px;
+    text-decoration: none; color: #333; font-size: 13px; background: #fff;
+  }
+  .pagination a:hover { background: #f0f0f0; }
+  .pagination .current { background: var(--kbc-red); color: #fff; border-color: var(--kbc-red); }
+  .pagination .disabled { color: #aaa; cursor: default; }
+
+  .empty-log { text-align: center; padding: 40px; color: #888; }
+  .summary { color: #666; font-size: 13px; margin: 8px 0; }
+
+  @media (max-width: 700px) {
+    .log-filters input[type=text] { min-width: 140px; }
+    .log-table { font-size: 12px; }
+    .log-table th, .log-table td { padding: 7px 8px; }
+    /* An mot so cot tren mobile */
+    .col-ip, .col-org { display: none; }
+  }
+</style>
+
+<h2 style="margin: 4px 0 16px; color: var(--kbc-red-dark);">📜 Lịch sử hoạt động</h2>
+
+<div class="log-filters">
+  <form method="get" action="{{ url_for('activity_log_view') }}">
+    <div>
+      <label>Người dùng</label>
+      <select name="user_id">
+        <option value="">— Tất cả —</option>
+        {% for u in users %}
+        <option value="{{ u.id }}" {% if f_user_id==u.id %}selected{% endif %}>
+          {{ u.full_name or u.username }} ({{ u.username }} - {{ u.organization }})
+        </option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label>Hành động</label>
+      <select name="action">
+        <option value="">— Tất cả —</option>
+        {% for a in actions_in_db %}
+        <option value="{{ a }}" {% if f_action==a %}selected{% endif %}>
+          {{ action_labels.get(a, a) }}
+        </option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label>Đối tượng</label>
+      <select name="entity_type">
+        <option value="">— Tất cả —</option>
+        {% for k, v in entity_labels.items() %}
+        <option value="{{ k }}" {% if f_entity_type==k %}selected{% endif %}>{{ v }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label>Từ ngày</label>
+      <input type="date" name="date_from" value="{{ f_date_from }}">
+    </div>
+    <div>
+      <label>Đến ngày</label>
+      <input type="date" name="date_to" value="{{ f_date_to }}">
+    </div>
+    <div>
+      <label>Tìm kiếm</label>
+      <input type="text" name="q" value="{{ f_q }}" placeholder="Mô tả, IP, username…">
+    </div>
+    <div>
+      <button type="submit" class="btn">🔍 Lọc</button>
+      <a href="{{ url_for('activity_log_view') }}" class="btn btn-clear">↺ Xoá lọc</a>
+    </div>
+  </form>
+</div>
+
+<div class="summary">
+  Tổng: <b>{{ total }}</b> bản ghi
+  {% if total_pages > 1 %} · Trang <b>{{ page }}</b>/<b>{{ total_pages }}</b>{% endif %}
+</div>
+
+{% if rows %}
+<div class="log-table-wrap">
+  <table class="log-table">
+    <thead>
+      <tr>
+        <th style="width:140px">Thời gian</th>
+        <th style="width:170px">Người dùng</th>
+        <th class="col-org" style="width:55px">Tổ chức</th>
+        <th style="width:170px">Hành động</th>
+        <th>Mô tả</th>
+        <th class="col-ip" style="width:110px">IP</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+      <tr>
+        <td class="log-time">{{ r.created_at|replace('T', ' ') }}</td>
+        <td>
+          {% if r.username %}
+          <span class="log-username">{{ r.username }}</span>
+          {% else %}
+          <span style="color:#aaa">(không xác định)</span>
+          {% endif %}
+        </td>
+        <td class="col-org">
+          {% if r.user_org == 'KBC' %}<span class="badge-org-kbc">KBC</span>
+          {% elif r.user_org == 'HP89' %}<span class="badge-org-hp89">HP89</span>
+          {% endif %}
+        </td>
+        <td>
+          {% set act = r.action %}
+          {% set base = act.split('.')[0] if '.' in act else 'auth' %}
+          {% set verb = act.split('.')[1] if '.' in act else '' %}
+          <span class="badge-action
+            {% if act == 'auth.login_failed' %}badge-auth-fail
+            {% elif base == 'auth' %}badge-auth
+            {% elif base == 'user' %}badge-user
+            {% elif base == 'order' %}badge-order
+            {% elif base == 'contract' %}badge-contract
+            {% elif base == 'legal' %}badge-legal
+            {% elif base == 'media' %}badge-media
+            {% elif base == 'product' %}badge-product
+            {% endif %}">
+            {{ action_labels.get(act, act) }}
+          </span>
+        </td>
+        <td class="log-desc">{{ r.description or '—' }}</td>
+        <td class="col-ip log-ip">{{ r.ip_address or '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% if total_pages > 1 %}
+<div class="pagination">
+  {% set qs_base = 'user_id=' ~ (f_user_id or '') ~ '&action=' ~ f_action ~ '&entity_type=' ~ f_entity_type ~ '&date_from=' ~ f_date_from ~ '&date_to=' ~ f_date_to ~ '&q=' ~ f_q %}
+  {% if page > 1 %}
+    <a href="?{{ qs_base }}&page=1">« Đầu</a>
+    <a href="?{{ qs_base }}&page={{ page - 1 }}">‹ Trước</a>
+  {% else %}
+    <span class="disabled">« Đầu</span>
+    <span class="disabled">‹ Trước</span>
+  {% endif %}
+
+  {% set start = [1, page - 2]|max %}
+  {% set end = [total_pages, page + 2]|min %}
+  {% for p in range(start, end + 1) %}
+    {% if p == page %}
+      <span class="current">{{ p }}</span>
+    {% else %}
+      <a href="?{{ qs_base }}&page={{ p }}">{{ p }}</a>
+    {% endif %}
+  {% endfor %}
+
+  {% if page < total_pages %}
+    <a href="?{{ qs_base }}&page={{ page + 1 }}">Sau ›</a>
+    <a href="?{{ qs_base }}&page={{ total_pages }}">Cuối »</a>
+  {% else %}
+    <span class="disabled">Sau ›</span>
+    <span class="disabled">Cuối »</span>
+  {% endif %}
+</div>
+{% endif %}
+
+{% else %}
+<div class="log-table-wrap">
+  <div class="empty-log">Không có bản ghi nào khớp bộ lọc.</div>
+</div>
+{% endif %}
+
+{% endblock %}

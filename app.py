@@ -356,6 +356,25 @@ def init_db():
         FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
     );
     CREATE INDEX IF NOT EXISTS idx_push_user ON push_subscriptions(user_id);
+
+    -- Nhat ky hoat dong cho admin theo doi
+    CREATE TABLE IF NOT EXISTS activity_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER,
+        username TEXT,
+        user_org TEXT,
+        action TEXT NOT NULL,
+        entity_type TEXT,
+        entity_id INTEGER,
+        description TEXT,
+        ip_address TEXT,
+        user_agent TEXT,
+        created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_activity_created ON activity_log(created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_activity_user ON activity_log(user_id);
+    CREATE INDEX IF NOT EXISTS idx_activity_entity ON activity_log(entity_type, entity_id);
+    CREATE INDEX IF NOT EXISTS idx_activity_action ON activity_log(action);
     ''')
 
     # Tạo admin mặc định nếu chưa có
@@ -759,6 +778,33 @@ app.jinja_env.globals['LEGAL_STATUS_PILL'] = LEGAL_STATUS_PILL
 app.jinja_env.globals['ORG_LABELS'] = ORG_LABELS
 
 
+# ---------- Activity log ----------
+def log_activity(action, entity_type=None, entity_id=None, description=None,
+                 user_id=None, username=None, user_org=None):
+    """Ghi nhat ky hoat dong cho admin theo doi.
+    Mac dinh lay tu current_user; cho phep override de log su kien dang nhap that bai."""
+    try:
+        if user_id is None:
+            if current_user.is_authenticated:
+                user_id = current_user.id
+                username = current_user.username
+                user_org = current_user.organization
+            else:
+                user_id = None
+        ip = (request.headers.get('X-Forwarded-For') or request.remote_addr or '').split(',')[0].strip()
+        ua = (request.headers.get('User-Agent') or '')[:200]
+        get_db().execute(
+            'INSERT INTO activity_log(user_id, username, user_org, action, entity_type, entity_id, description, ip_address, user_agent, created_at) '
+            'VALUES (?,?,?,?,?,?,?,?,?,?)',
+            (user_id, username, user_org, action, entity_type, entity_id,
+             (description or '')[:500], ip, ua,
+             datetime.now().isoformat(timespec='seconds'))
+        )
+        # caller tu commit
+    except Exception:
+        pass  # log khong bao gio lam vo luong chinh
+
+
 # ---------- Notifications ----------
 def send_web_push_to_user(user_id, title, body, url=None):
     """Tra ve dict de debug: {ok, sent, dead, errors, no_vapid, no_sub}"""
@@ -968,7 +1014,17 @@ def login():
         row = get_db().execute('SELECT * FROM users WHERE username=?', (username,)).fetchone()
         if row and check_password_hash(row['password_hash'], password):
             login_user(User(row), remember=remember)
+            log_activity('auth.login', 'auth', row['id'],
+                         f'Đăng nhập thành công ({"có duy trì" if remember else "không duy trì"})',
+                         user_id=row['id'], username=row['username'],
+                         user_org=row['organization'])
+            get_db().commit()
             return redirect(url_for('dashboard'))
+        # Log dang nhap that bai
+        log_activity('auth.login_failed', 'auth', None,
+                     f'Đăng nhập thất bại với username="{username[:50]}"',
+                     user_id=None, username=username[:50], user_org=None)
+        get_db().commit()
         flash('Sai tên đăng nhập hoặc mật khẩu', 'danger')
     return render_template('login.html')
 
@@ -976,6 +1032,8 @@ def login():
 @app.route('/logout')
 @login_required
 def logout():
+    log_activity('auth.logout', 'auth', current_user.id, 'Đăng xuất')
+    get_db().commit()
     logout_user()
     return redirect(url_for('login'))
 
@@ -998,6 +1056,7 @@ def change_password():
             db = get_db()
             db.execute('UPDATE users SET password_hash=? WHERE id=?',
                        (generate_password_hash(new), current_user.id))
+            log_activity('auth.change_password', 'auth', current_user.id, 'Đổi mật khẩu thành công')
             db.commit()
             flash('Đổi mật khẩu thành công', 'success')
             return redirect(url_for('dashboard'))
@@ -1097,11 +1156,13 @@ def user_new():
         else:
             try:
                 db = get_db()
-                db.execute(
+                cur = db.execute(
                     'INSERT INTO users(username, password_hash, full_name, email, role, organization, permissions, created_at) VALUES (?,?,?,?,?,?,?,?)',
                     (username, generate_password_hash(password), full_name, email, role, organization, permissions,
                      datetime.now().isoformat(timespec='seconds'))
                 )
+                log_activity('user.create', 'user', cur.lastrowid,
+                             f'Tạo tài khoản "{username}" ({full_name}) - vai trò: {role}, tổ chức: {organization}')
                 db.commit()
                 flash(f'Đã tạo user "{username}" thuộc {organization}', 'success')
                 return redirect(url_for('users_list'))
@@ -1164,6 +1225,8 @@ def user_edit(uid):
         else:
             db.execute('UPDATE users SET full_name=?, email=?, role=?, organization=?, permissions=? WHERE id=?',
                        (full_name, email, role, organization, permissions, uid))
+            log_activity('user.update', 'user', uid,
+                         f'Cập nhật tài khoản "{eu.username}" → vai trò: {role}, tổ chức: {organization}')
             db.commit()
             flash('Đã cập nhật user', 'success')
             return redirect(url_for('users_list'))
@@ -1183,7 +1246,7 @@ def user_delete(uid):
         flash('Không thể xoá chính mình', 'danger')
         return redirect(url_for('users_list'))
     db = get_db()
-    row = db.execute('SELECT role, organization FROM users WHERE id=?', (uid,)).fetchone()
+    row = db.execute('SELECT username, full_name, role, organization FROM users WHERE id=?', (uid,)).fetchone()
     if not row:
         abort(404)
     ok, err = _can_manage_user(row['organization'], row['role'])
@@ -1191,6 +1254,8 @@ def user_delete(uid):
         flash(err, 'danger')
         return redirect(url_for('users_list'))
     db.execute('DELETE FROM users WHERE id=?', (uid,))
+    log_activity('user.delete', 'user', uid,
+                 f'Xoá tài khoản "{row["username"]}" ({row["full_name"] or ""}) - {row["organization"]}')
     db.commit()
     flash('Đã xoá user', 'success')
     return redirect(url_for('users_list'))
@@ -1201,7 +1266,7 @@ def user_delete(uid):
 @manage_users_required
 def user_reset(uid):
     db = get_db()
-    row = db.execute('SELECT role, organization FROM users WHERE id=?', (uid,)).fetchone()
+    row = db.execute('SELECT username, role, organization FROM users WHERE id=?', (uid,)).fetchone()
     if not row:
         abort(404)
     ok, err = _can_manage_user(row['organization'], row['role'])
@@ -1213,6 +1278,7 @@ def user_reset(uid):
         flash('Mật khẩu mới tối thiểu 6 ký tự', 'danger')
         return redirect(url_for('users_list'))
     db.execute('UPDATE users SET password_hash=? WHERE id=?', (generate_password_hash(new_pwd), uid))
+    log_activity('user.reset_password', 'user', uid, f'Đặt lại mật khẩu cho "{row["username"]}"')
     db.commit()
     flash('Đã đặt lại mật khẩu', 'success')
     return redirect(url_for('users_list'))
@@ -1534,6 +1600,11 @@ def _save_order(order_id):
         notify_cap_users('notify_order',
                          f'[ĐƠN HÀNG MỚI] {code or customer_name} đã được HP89 tạo (nháp)',
                          link, exclude_ids=[current_user.id])
+        log_activity('order.create', 'order', order_id,
+                     f'Tạo đơn hàng {code or "#" + str(order_id)} - {customer_name}')
+    else:
+        log_activity('order.update', 'order', order_id,
+                     f'Sửa đơn hàng {code or "#" + str(order_id)} - {customer_name}')
     db.commit()
 
     # Nếu user bấm "Lưu & Gửi Lãnh đạo HP89 duyệt" thì transition ngay
@@ -1610,7 +1681,7 @@ def order_delete(oid):
     if not can_edit('order', oid, current_user):
         abort(403)
     db = get_db()
-    o = db.execute('SELECT owner_id, order_file, invoice_file, delivery_file, other_file, warehouse_file FROM orders WHERE id=?',
+    o = db.execute('SELECT code, customer_name, owner_id, order_file, invoice_file, delivery_file, other_file, warehouse_file FROM orders WHERE id=?',
                    (oid,)).fetchone()
     if not o:
         abort(404)
@@ -1618,6 +1689,8 @@ def order_delete(oid):
         flash('Chỉ chủ đơn hoặc Admin mới được xoá', 'danger')
         return redirect(url_for('order_view', oid=oid))
     db.execute('DELETE FROM orders WHERE id=?', (oid,))
+    log_activity('order.delete', 'order', oid,
+                 f'Xoá đơn hàng {o["code"] or "#" + str(oid)} - {o["customer_name"]}')
     db.commit()
     for f in (o['order_file'], o['invoice_file'], o['delivery_file'], o['other_file'], o['warehouse_file']):
         if f:
@@ -1695,6 +1768,8 @@ def _do_submit_order(oid):
     notify_cap_users('approve_hp89_order',
                      f'[CHỜ DUYỆT] Đơn "{code_or_name}" cần Lãnh đạo HP89 duyệt',
                      link, exclude_ids=exclude, organization='HP89')
+    log_activity('order.submit', 'order', oid,
+                 f'Gửi đơn {code_or_name} cho Lãnh đạo HP89 duyệt')
     db.commit()
     return True, 'OK'
 
@@ -1783,6 +1858,8 @@ def order_approve_hp89(oid):
                            link, subj_lead, body_lead,
                            exclude_ids=[current_user.id])
 
+    log_activity('order.approve_hp89', 'order', oid,
+                 f'Duyệt đơn {code_or_name} (HP89 → KBC tiếp nhận)')
     db.commit()
     flash('Đã duyệt đơn — đẩy sang KBC tiếp nhận, đã gửi email + thông báo', 'success')
     return redirect(url_for('order_view', oid=oid))
@@ -1807,6 +1884,8 @@ def order_reject_hp89(oid):
     if note:
         msg += f' — Lý do: {note}'
     notify_user(o['owner_id'], msg, link)
+    log_activity('order.reject_hp89', 'order', oid,
+                 f'Trả lại đơn {o["code"] or o["customer_name"]}' + (f' - Lý do: {note}' if note else ''))
     db.commit()
     flash('Đã trả lại đơn về Nháp', 'warning')
     return redirect(url_for('order_view', oid=oid))
@@ -1832,6 +1911,8 @@ def order_receive_kbc(oid):
     if o['approved_by']:
         notify_user(o['approved_by'],
                     f'KBC đã NHẬN đơn "{o["code"] or o["customer_name"]}"', link)
+    log_activity('order.receive_kbc', 'order', oid,
+                 f'KBC tiếp nhận đơn {o["code"] or o["customer_name"]}')
     db.commit()
     flash('Đã tiếp nhận đơn hàng — chuẩn bị giao hàng', 'success')
     return redirect(url_for('order_view', oid=oid))
@@ -1891,6 +1972,8 @@ def order_deliver_kbc(oid):
     if o['received_by'] and o['received_by'] != current_user.id and o['received_by'] not in sent_to_ids:
         notify_user(o['received_by'], f'Đơn "{code_or_name}" đã được giao xong', link)
 
+    log_activity('order.deliver_kbc', 'order', oid,
+                 f'KBC giao xong đơn {code_or_name}')
     db.commit()
     flash('Đã tick GIAO XONG — đơn hoàn thành, đã gửi email + thông báo', 'success')
     return redirect(url_for('order_view', oid=oid))
@@ -1907,6 +1990,8 @@ def order_reopen(oid):
     db.execute('''UPDATE orders SET workflow_status='draft', approved_by=NULL, approved_at=NULL,
                   received_by=NULL, received_at=NULL, delivered_by=NULL, delivered_at=NULL,
                   submitted_at=NULL, updated_at=? WHERE id=?''', (now, oid))
+    log_activity('order.reopen', 'order', oid,
+                 f'Admin mở lại đơn {o["code"] or o["customer_name"]} về trạng thái Nháp')
     db.commit()
     flash('Admin đã mở lại đơn về trạng thái Nháp', 'warning')
     return redirect(url_for('order_view', oid=oid))
@@ -2122,6 +2207,7 @@ def contract_new():
                 create_notification(uid, f'Bạn là người nhận hợp đồng: "{title}"', link)
         notify_cap_users('notify_contract', f'Có hợp đồng mới: "{title}"', link,
                          exclude_ids=[current_user.id] + rcv_ids)
+        log_activity('contract.create', 'contract', new_id, f'Tạo hợp đồng "{title}"')
         db.commit()
         flash('Đã tạo hợp đồng', 'success')
         return redirect(link)
@@ -2208,6 +2294,7 @@ def contract_edit(cid):
                     files_state['contract_file'], files_state['handover_file'],
                     files_state['appendix_file'], files_state['invoice_file'], files_state['other_file'],
                     datetime.now().isoformat(timespec='seconds'), cid))
+        log_activity('contract.update', 'contract', cid, f'Sửa hợp đồng "{title}"')
         db.commit()
         flash('Đã cập nhật hợp đồng', 'success')
         return redirect(url_for('contract_view', cid=cid))
@@ -2222,7 +2309,7 @@ def contract_delete(cid):
     if not can_edit('contract', cid, current_user):
         abort(403)
     db = get_db()
-    c = db.execute('''SELECT owner_id, contract_file, handover_file, appendix_file,
+    c = db.execute('''SELECT title, owner_id, contract_file, handover_file, appendix_file,
                              invoice_file, other_file FROM contracts WHERE id=?''',
                    (cid,)).fetchone()
     if not c:
@@ -2232,6 +2319,7 @@ def contract_delete(cid):
         return redirect(url_for('contract_view', cid=cid))
     db.execute('DELETE FROM record_permissions WHERE record_type=? AND record_id=?', ('contract', cid))
     db.execute('DELETE FROM contracts WHERE id=?', (cid,))
+    log_activity('contract.delete', 'contract', cid, f'Xoá hợp đồng "{c["title"]}"')
     db.commit()
     for f in (c['contract_file'], c['handover_file'], c['appendix_file'],
               c['invoice_file'], c['other_file']):
@@ -2492,6 +2580,8 @@ def _save_media(post_id):
             db.execute('''INSERT INTO media_files(post_id, stored_name, original_name, uploaded_by, created_at)
                           VALUES (?,?,?,?,?)''',
                        (post_id, stored, orig, current_user.id, now))
+    log_activity('media.create' if is_new else 'media.update', 'media', post_id,
+                 f'{"Tạo" if is_new else "Sửa"} bài truyền thông "{title}"')
     db.commit()
     flash('Đã lưu bài truyền thông', 'success')
     return redirect(url_for('media_view', mid=post_id))
@@ -2541,7 +2631,7 @@ def media_delete(mid):
     if not can_edit('media', mid, current_user):
         abort(403)
     db = get_db()
-    m = db.execute('SELECT owner_id FROM media_posts WHERE id=?', (mid,)).fetchone()
+    m = db.execute('SELECT title, owner_id FROM media_posts WHERE id=?', (mid,)).fetchone()
     if not m:
         abort(404)
     if not current_user.full_access and m['owner_id'] != current_user.id:
@@ -2549,6 +2639,7 @@ def media_delete(mid):
         return redirect(url_for('media_view', mid=mid))
     files = db.execute('SELECT stored_name FROM media_files WHERE post_id=?', (mid,)).fetchall()
     db.execute('DELETE FROM media_posts WHERE id=?', (mid,))
+    log_activity('media.delete', 'media', mid, f'Xoá bài truyền thông "{m["title"]}"')
     db.commit()
     for f in files:
         try:
@@ -2612,6 +2703,7 @@ def media_submit(mid):
     notify_cap_users('approve_media',
                      f'[TRUYỀN THÔNG] HP89 gửi bài "{m["title"]}" — cần KBC xác nhận',
                      link, exclude_ids=[current_user.id], organization='KBC')
+    log_activity('media.submit', 'media', mid, f'Gửi bài "{m["title"]}" cho KBC duyệt')
     db.commit()
     flash('Đã gửi nội dung cho KBC duyệt', 'success')
     return redirect(url_for('media_view', mid=mid))
@@ -2633,6 +2725,7 @@ def media_approve(mid):
     link = url_for('media_view', mid=mid)
     notify_user(m['owner_id'],
                 f'KBC đã THỐNG NHẤT nội dung truyền thông "{m["title"]}"', link)
+    log_activity('media.approve', 'media', mid, f'KBC duyệt bài "{m["title"]}"')
     db.commit()
     flash('Đã xác nhận thống nhất nội dung', 'success')
     return redirect(url_for('media_view', mid=mid))
@@ -2656,6 +2749,8 @@ def media_request_revision(mid):
     if note:
         msg += f' — Lý do: {note}'
     notify_user(m['owner_id'], msg, link)
+    log_activity('media.request_revision', 'media', mid,
+                 f'KBC yêu cầu sửa bài "{m["title"]}"' + (f' - Lý do: {note}' if note else ''))
     db.commit()
     flash('Đã gửi yêu cầu chỉnh sửa về HP89', 'warning')
     return redirect(url_for('media_view', mid=mid))
@@ -2678,6 +2773,7 @@ def media_publish(mid):
     now = datetime.now().isoformat(timespec='seconds')
     db.execute("UPDATE media_posts SET status='published', link=?, updated_at=? WHERE id=?",
                (link_val, now, mid))
+    log_activity('media.publish', 'media', mid, f'Đánh dấu đã đăng bài "{m["title"]}"')
     db.commit()
     flash('Đã đánh dấu bài Đã đăng', 'success')
     return redirect(url_for('media_view', mid=mid))
@@ -2708,11 +2804,12 @@ def product_new():
         except ValueError:
             price = 0
         db = get_db()
-        db.execute('''INSERT INTO products(name, unit, packaging, default_price, active, created_at)
+        cur = db.execute('''INSERT INTO products(name, unit, packaging, default_price, active, created_at)
                      VALUES (?,?,?,?,1,?)''',
                    (name, request.form.get('unit', '').strip(),
                     request.form.get('packaging', '').strip(),
                     price, datetime.now().isoformat(timespec='seconds')))
+        log_activity('product.create', 'product', cur.lastrowid, f'Thêm sản phẩm "{name}"')
         db.commit()
         flash(f'Đã thêm sản phẩm "{name}"', 'success')
         return redirect(url_for('products_list'))
@@ -2742,6 +2839,7 @@ def product_edit(prod_id):
                    (name, request.form.get('unit', '').strip(),
                     request.form.get('packaging', '').strip(),
                     price, active, prod_id))
+        log_activity('product.update', 'product', prod_id, f'Sửa sản phẩm "{name}"')
         db.commit()
         flash('Đã cập nhật sản phẩm', 'success')
         return redirect(url_for('products_list'))
@@ -2753,7 +2851,10 @@ def product_edit(prod_id):
 @require_cap('manage_products')
 def product_delete(prod_id):
     db = get_db()
+    p = db.execute('SELECT name FROM products WHERE id=?', (prod_id,)).fetchone()
     db.execute('DELETE FROM products WHERE id=?', (prod_id,))
+    log_activity('product.delete', 'product', prod_id,
+                 f'Xoá sản phẩm "{p["name"]}"' if p else f'Xoá sản phẩm #{prod_id}')
     db.commit()
     flash('Đã xoá sản phẩm', 'success')
     return redirect(url_for('products_list'))
@@ -2902,6 +3003,131 @@ def push_test():
 # ============================================================
 # ---------- REPORTS ----------
 # ============================================================
+# ============================================================
+# ---------- ACTIVITY LOG (chi admin xem) ----------
+# ============================================================
+ACTIVITY_ACTION_LABELS = {
+    'auth.login': 'Đăng nhập',
+    'auth.login_failed': 'Đăng nhập thất bại',
+    'auth.logout': 'Đăng xuất',
+    'auth.change_password': 'Đổi mật khẩu',
+    'user.create': 'Tạo tài khoản',
+    'user.update': 'Sửa tài khoản',
+    'user.delete': 'Xoá tài khoản',
+    'user.reset_password': 'Đặt lại mật khẩu',
+    'order.create': 'Tạo đơn hàng',
+    'order.update': 'Sửa đơn hàng',
+    'order.delete': 'Xoá đơn hàng',
+    'order.submit': 'Gửi đơn duyệt',
+    'order.approve_hp89': 'Lãnh đạo HP89 duyệt đơn',
+    'order.reject_hp89': 'Lãnh đạo HP89 trả lại đơn',
+    'order.receive_kbc': 'KBC nhận đơn',
+    'order.deliver_kbc': 'KBC giao xong đơn',
+    'order.reopen': 'Mở lại đơn',
+    'contract.create': 'Tạo hợp đồng',
+    'contract.update': 'Sửa hợp đồng',
+    'contract.delete': 'Xoá hợp đồng',
+    'legal.create': 'Tạo pháp lý',
+    'legal.update': 'Sửa pháp lý',
+    'legal.delete': 'Xoá pháp lý',
+    'legal.approve': 'Duyệt pháp lý',
+    'legal.reject': 'Từ chối pháp lý',
+    'media.create': 'Tạo bài truyền thông',
+    'media.update': 'Sửa bài truyền thông',
+    'media.delete': 'Xoá bài truyền thông',
+    'media.submit': 'Gửi bài duyệt',
+    'media.approve': 'KBC duyệt bài',
+    'media.request_revision': 'KBC yêu cầu sửa',
+    'media.publish': 'Đánh dấu đã đăng',
+    'product.create': 'Thêm sản phẩm',
+    'product.update': 'Sửa sản phẩm',
+    'product.delete': 'Xoá sản phẩm',
+}
+
+ACTIVITY_ENTITY_LABELS = {
+    'auth': 'Đăng nhập/Đăng xuất',
+    'user': 'Tài khoản',
+    'order': 'Đơn hàng',
+    'contract': 'Hợp đồng',
+    'legal': 'Pháp lý',
+    'media': 'Truyền thông',
+    'product': 'Sản phẩm',
+}
+
+
+@app.route('/activity-log')
+@login_required
+@admin_required
+def activity_log_view():
+    db = get_db()
+    page = max(1, request.args.get('page', 1, type=int))
+    per_page = 50
+
+    # Filters
+    f_user_id = request.args.get('user_id', type=int)
+    f_action = request.args.get('action', '').strip()
+    f_entity_type = request.args.get('entity_type', '').strip()
+    f_date_from = request.args.get('date_from', '').strip()
+    f_date_to = request.args.get('date_to', '').strip()
+    f_q = request.args.get('q', '').strip()
+
+    where = []
+    params = []
+    if f_user_id:
+        where.append('user_id = ?')
+        params.append(f_user_id)
+    if f_action:
+        where.append('action = ?')
+        params.append(f_action)
+    if f_entity_type:
+        where.append('entity_type = ?')
+        params.append(f_entity_type)
+    if f_date_from:
+        where.append('created_at >= ?')
+        params.append(f_date_from + ' 00:00:00')
+    if f_date_to:
+        where.append('created_at <= ?')
+        params.append(f_date_to + ' 23:59:59')
+    if f_q:
+        where.append('(description LIKE ? OR username LIKE ? OR ip_address LIKE ?)')
+        like = f'%{f_q}%'
+        params.extend([like, like, like])
+
+    where_sql = ('WHERE ' + ' AND '.join(where)) if where else ''
+
+    total = db.execute(f'SELECT COUNT(*) AS c FROM activity_log {where_sql}',
+                       params).fetchone()['c']
+    total_pages = max(1, (total + per_page - 1) // per_page)
+    if page > total_pages:
+        page = total_pages
+
+    rows = db.execute(
+        f'SELECT * FROM activity_log {where_sql} ORDER BY id DESC LIMIT ? OFFSET ?',
+        params + [per_page, (page - 1) * per_page]
+    ).fetchall()
+
+    # Danh sach user de filter
+    users = db.execute(
+        'SELECT id, username, full_name, organization FROM users ORDER BY full_name, username'
+    ).fetchall()
+
+    # Danh sach action thuc te trong DB de filter
+    actions_in_db = [r['action'] for r in db.execute(
+        'SELECT DISTINCT action FROM activity_log ORDER BY action'
+    ).fetchall()]
+
+    return render_template('activity_log.html',
+                           rows=rows,
+                           users=users,
+                           actions_in_db=actions_in_db,
+                           action_labels=ACTIVITY_ACTION_LABELS,
+                           entity_labels=ACTIVITY_ENTITY_LABELS,
+                           page=page, total_pages=total_pages, total=total,
+                           f_user_id=f_user_id, f_action=f_action,
+                           f_entity_type=f_entity_type, f_date_from=f_date_from,
+                           f_date_to=f_date_to, f_q=f_q)
+
+
 @app.route('/reports')
 @login_required
 def reports():
@@ -3144,7 +3370,7 @@ def legal_new():
             f.save(os.path.join(LEGAL_DIR, stored_name))
 
         now = datetime.now().isoformat(timespec='seconds')
-        db.execute(
+        cur = db.execute(
             '''INSERT INTO legal_nodes(title, parent_id, description, stored_name, original_name,
                approval_status, created_by, created_at, updated_at)
                VALUES (?,?,?,?,?,'pending',?,?,?)''',
@@ -3155,6 +3381,7 @@ def legal_new():
         # Báo cho người có quyền duyệt
         notify_cap_users('approve_legal', f'Giấy tờ pháp lý mới «{title}» cần duyệt',
                          url_for('legal_list'), exclude_ids=[current_user.id])
+        log_activity('legal.create', 'legal', cur.lastrowid, f'Tạo giấy tờ pháp lý "{title}"')
         db.commit()
         flash('Đã tạo giấy tờ pháp lý. Đang chờ phê duyệt.', 'success')
         return redirect(url_for('legal_list'))
@@ -3208,6 +3435,7 @@ def legal_edit(nid):
                updated_at=? WHERE id=?''',
             (title, parent_id, description, stored_name, original_name, now, nid)
         )
+        log_activity('legal.update', 'legal', nid, f'Sửa giấy tờ pháp lý "{title}"')
         db.commit()
         flash('Đã cập nhật. Cần phê duyệt lại.', 'success')
         return redirect(url_for('legal_list'))
@@ -3228,6 +3456,7 @@ def legal_delete(nid):
         if os.path.exists(fp):
             os.remove(fp)
     db.execute('DELETE FROM legal_nodes WHERE id=?', (nid,))
+    log_activity('legal.delete', 'legal', nid, f'Xoá giấy tờ pháp lý "{node["title"]}"')
     db.commit()
     flash('Đã xóa.', 'success')
     return redirect(url_for('legal_list'))
@@ -3253,6 +3482,7 @@ def legal_approve(nid):
         create_notification(creator_id,
                             f'Giấy tờ pháp lý «{node["title"]}» đã được PHÊ DUYỆT',
                             url_for('legal_list'))
+    log_activity('legal.approve', 'legal', nid, f'Phê duyệt pháp lý "{node["title"]}"')
     db.commit()
     flash('Đã phê duyệt giấy tờ pháp lý.', 'success')
     return redirect(url_for('legal_list'))
@@ -3278,6 +3508,8 @@ def legal_reject(nid):
         create_notification(creator_id,
                             f'Giấy tờ pháp lý «{node["title"]}» bị TỪ CHỐI: {note}',
                             url_for('legal_list'))
+    log_activity('legal.reject', 'legal', nid,
+                 f'Từ chối pháp lý "{node["title"]}"' + (f' - Lý do: {note}' if note else ''))
     db.commit()
     flash('Đã từ chối.', 'warning')
     return redirect(url_for('legal_list'))

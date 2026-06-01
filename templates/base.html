@@ -203,6 +203,9 @@
     {% if current_user.can_manage_users %}
       <a href="{{ url_for('users_list') }}" class="{% if request.endpoint and request.endpoint.startswith('user') %}active{% endif %}">NGƯỜI DÙNG</a>
     {% endif %}
+    {% if current_user.is_admin %}
+      <a href="{{ url_for('activity_log_view') }}" class="{% if request.endpoint=='activity_log_view' %}active{% endif %}">📜 LỊCH SỬ</a>
+    {% endif %}
   </nav>
   {% endif %}
 
