@@ -1874,6 +1874,13 @@ def order_approve_hp89(oid):
                            link, subj_lead, body_lead,
                            exclude_ids=[current_user.id])
 
+    # 4) Thông báo in-app cho Lãnh đạo HP89 có cap notify_order (không email)
+    notify_cap_users('notify_order',
+                     f'Lãnh đạo HP89 đã duyệt đơn "{code_or_name}" — đang chuyển sang KBC tiếp nhận',
+                     link,
+                     exclude_ids=[current_user.id, o['owner_id']],
+                     organization='HP89')
+
     log_activity('order.approve_hp89', 'order', oid,
                  f'Duyệt đơn {code_or_name} (HP89 → KBC tiếp nhận)')
     db.commit()
@@ -1922,13 +1929,32 @@ def order_receive_kbc(oid):
                   WHERE id=?''',
                ('received_kbc', current_user.id, now, now, oid))
     link = url_for('order_view', oid=oid)
+    code_or_name = o["code"] or o["customer_name"]
+    receiver_name = current_user.full_name or current_user.username
     notify_user(o['owner_id'],
-                f'KBC đã NHẬN đơn "{o["code"] or o["customer_name"]}" — đang chuẩn bị giao hàng', link)
+                f'KBC đã NHẬN đơn "{code_or_name}" — đang chuẩn bị giao hàng', link)
     if o['approved_by']:
         notify_user(o['approved_by'],
-                    f'KBC đã NHẬN đơn "{o["code"] or o["customer_name"]}"', link)
+                    f'KBC đã NHẬN đơn "{code_or_name}"', link)
+
+    # Thông báo in-app cho Lãnh đạo KBC + Admin (không email)
+    sent_ids = {current_user.id, o['owner_id']}
+    if o['approved_by']:
+        sent_ids.add(o['approved_by'])
+    msg_leaders = f'{receiver_name} (KBC) đã tiếp nhận đơn "{code_or_name}" — đang chuẩn bị giao hàng'
+    for ld in _get_kbc_leaders():
+        if ld['id'] in sent_ids:
+            continue
+        notify_user(ld['id'], msg_leaders, link)
+        sent_ids.add(ld['id'])
+
+    # Thông báo in-app cho Lãnh đạo HP89 có cap notify_order
+    notify_cap_users('notify_order', msg_leaders, link,
+                     exclude_ids=list(sent_ids),
+                     organization='HP89')
+
     log_activity('order.receive_kbc', 'order', oid,
-                 f'KBC tiếp nhận đơn {o["code"] or o["customer_name"]}')
+                 f'KBC tiếp nhận đơn {code_or_name}')
     db.commit()
     flash('Đã tiếp nhận đơn hàng — chuẩn bị giao hàng', 'success')
     return redirect(url_for('order_view', oid=oid))
@@ -1983,10 +2009,18 @@ def order_deliver_kbc(oid):
     leaders_email_body = f'Đơn hàng đã hoàn thành giao:\n{body_base}'
     notify_and_email_users(leaders, msg_inapp, link, subject, leaders_email_body,
                            exclude_ids=list(sent_to_ids) + [current_user.id])
+    for ld in leaders:
+        sent_to_ids.add(ld['id'])
 
     # 4) Nhân viên KBC đã nhận đơn (nếu khác người giao) — in-app only
     if o['received_by'] and o['received_by'] != current_user.id and o['received_by'] not in sent_to_ids:
         notify_user(o['received_by'], f'Đơn "{code_or_name}" đã được giao xong', link)
+        sent_to_ids.add(o['received_by'])
+
+    # 5) Thông báo in-app cho Lãnh đạo HP89 có cap notify_order (không email)
+    notify_cap_users('notify_order', msg_inapp, link,
+                     exclude_ids=list(sent_to_ids) + [current_user.id],
+                     organization='HP89')
 
     log_activity('order.deliver_kbc', 'order', oid,
                  f'KBC giao xong đơn {code_or_name}')
