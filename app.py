@@ -61,9 +61,10 @@ CONTRACT_DIR = os.path.join(UPLOAD_DIR, 'contracts')
 ATTACH_DIR = os.path.join(UPLOAD_DIR, 'attachments')
 LEGAL_DIR = os.path.join(UPLOAD_DIR, 'legal')
 MEDIA_DIR = os.path.join(UPLOAD_DIR, 'media')
+COMMENT_DIR = os.path.join(UPLOAD_DIR, 'comments')
 DB_PATH = os.path.join(DATA_DIR, 'data.db')
 
-for d in (DATA_DIR, UPLOAD_DIR, ORDER_DIR, CONTRACT_DIR, ATTACH_DIR, LEGAL_DIR, MEDIA_DIR):
+for d in (DATA_DIR, UPLOAD_DIR, ORDER_DIR, CONTRACT_DIR, ATTACH_DIR, LEGAL_DIR, MEDIA_DIR, COMMENT_DIR):
     os.makedirs(d, exist_ok=True)
 
 print(f'>>> DATABASE PATH: {DB_PATH}', flush=True)
@@ -265,6 +266,8 @@ def init_db():
         record_id INTEGER NOT NULL,
         user_id INTEGER NOT NULL,
         content TEXT NOT NULL,
+        file_stored TEXT,
+        file_original TEXT,
         created_at TEXT NOT NULL,
         FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
     );
@@ -392,6 +395,19 @@ def init_db():
     CREATE INDEX IF NOT EXISTS idx_activity_entity ON activity_log(entity_type, entity_id);
     CREATE INDEX IF NOT EXISTS idx_activity_action ON activity_log(action);
     ''')
+
+    # Migration: bổ sung cột file_stored/file_original cho bảng comments cũ
+    existing_cols = {r[1] for r in conn.execute("PRAGMA table_info(comments)").fetchall()}
+    if 'file_stored' not in existing_cols:
+        try:
+            conn.execute('ALTER TABLE comments ADD COLUMN file_stored TEXT')
+        except sqlite3.OperationalError:
+            pass
+    if 'file_original' not in existing_cols:
+        try:
+            conn.execute('ALTER TABLE comments ADD COLUMN file_original TEXT')
+        except sqlite3.OperationalError:
+            pass
 
     # Tạo admin mặc định nếu chưa có
     cur = conn.execute('SELECT COUNT(*) FROM users WHERE role=?', ('admin',))
@@ -2507,17 +2523,77 @@ def add_comment(rtype, rid):
         flash('Bạn không có quyền nhập nhận xét', 'danger')
         return redirect(_record_back_url(rtype, rid) + '#comments')
     content = request.form.get('content', '').strip()
-    if not content:
-        flash('Nhận xét không được để trống', 'danger')
-    else:
-        db = get_db()
-        db.execute('''INSERT INTO comments(record_type, record_id, user_id, content, created_at)
-                     VALUES (?,?,?,?,?)''',
-                   (rtype, rid, current_user.id, content,
-                    vn_now().isoformat(timespec='seconds')))
-        db.commit()
-        flash('Đã thêm nhận xét', 'success')
+    file_stored, file_original = save_upload(request.files.get('attachment'), COMMENT_DIR)
+    if not content and not file_stored:
+        flash('Nhận xét hoặc file đính kèm không được để trống', 'danger')
+        return redirect(_record_back_url(rtype, rid) + '#comments')
+
+    db = get_db()
+    db.execute('''INSERT INTO comments(record_type, record_id, user_id, content,
+                                       file_stored, file_original, created_at)
+                 VALUES (?,?,?,?,?,?,?)''',
+               (rtype, rid, current_user.id, content,
+                file_stored, file_original,
+                vn_now().isoformat(timespec='seconds')))
+    db.commit()
+
+    # Thông báo in-app cho các bên liên quan (chỉ đơn hàng)
+    if rtype == 'order':
+        _notify_order_comment(rid, content, file_original)
+
+    flash('Đã thêm nhận xét', 'success')
     return redirect(_record_back_url(rtype, rid) + '#comments')
+
+
+def _notify_order_comment(oid, content, file_name):
+    """Gửi thông báo in-app cho các bên liên quan đơn hàng khi có comment mới."""
+    db = get_db()
+    o = db.execute('SELECT * FROM orders WHERE id=?', (oid,)).fetchone()
+    if not o:
+        return
+    code_or_name = o['code'] or o['customer_name']
+    commenter_name = current_user.full_name or current_user.username
+    org_label = current_user.organization or ''
+    snippet = content[:80] + ('…' if len(content) > 80 else '') if content else ''
+    if file_name:
+        attach_part = f' 📎 {file_name}'
+    else:
+        attach_part = ''
+    msg = (f'{commenter_name} ({org_label}) nhận xét đơn "{code_or_name}": '
+           f'{snippet}{attach_part}').strip()
+    link = url_for('order_view', oid=oid) + '#comments'
+
+    sent_ids = {current_user.id}
+    # Các bên trực tiếp liên quan
+    for uid_key in ('owner_id', 'approved_by', 'received_by', 'delivered_by'):
+        uid = o[uid_key] if uid_key in o.keys() else None
+        if uid and uid not in sent_ids:
+            notify_user(uid, msg, link)
+            sent_ids.add(uid)
+    # Lãnh đạo KBC + Admin
+    for ld in _get_kbc_leaders():
+        if ld['id'] in sent_ids:
+            continue
+        notify_user(ld['id'], msg, link)
+        sent_ids.add(ld['id'])
+    # Lãnh đạo HP89 có cap notify_order
+    notify_cap_users('notify_order', msg, link,
+                     exclude_ids=list(sent_ids),
+                     organization='HP89')
+
+
+@app.route('/comment/<int:cmt_id>/file')
+@login_required
+def comment_file(cmt_id):
+    db = get_db()
+    c = db.execute('SELECT * FROM comments WHERE id=?', (cmt_id,)).fetchone()
+    if not c or not c['file_stored']:
+        abort(404)
+    if not can_view(c['record_type'], c['record_id'], current_user):
+        abort(403)
+    return send_from_directory(COMMENT_DIR, c['file_stored'],
+                               as_attachment=True,
+                               download_name=c['file_original'] or c['file_stored'])
 
 
 def _record_back_url(rtype, rid):
@@ -2540,6 +2616,13 @@ def delete_comment(cmt_id):
     else:
         db.execute('DELETE FROM comments WHERE id=?', (cmt_id,))
         db.commit()
+        # Xoá file đính kèm nếu có
+        fs = c['file_stored'] if 'file_stored' in c.keys() else None
+        if fs:
+            try:
+                os.remove(os.path.join(COMMENT_DIR, fs))
+            except OSError:
+                pass
         flash('Đã xoá nhận xét', 'success')
     return redirect(_record_back_url(c['record_type'], c['record_id']) + '#comments')
 

@@ -202,16 +202,31 @@
           </form>
         {% endif %}
       </div>
-      <div style="font-size:14px; margin-top:4px">{{ c.content }}</div>
+      {% if c.content %}
+      <div style="font-size:14px; margin-top:4px; white-space:pre-wrap">{{ c.content }}</div>
+      {% endif %}
+      {% if c.file_stored %}
+      <div style="font-size:13px; margin-top:6px">
+        📎 <a href="{{ url_for('comment_file', cmt_id=c.id) }}">{{ c.file_original or c.file_stored }}</a>
+      </div>
+      {% endif %}
     </div>
     {% endfor %}
   {% else %}
     <div style="color:#999; margin-bottom:12px">Chưa có nhận xét nào.</div>
   {% endif %}
   {% if current_user.has_cap('comment') %}
-    <form method="post" action="{{ url_for('add_comment', rtype='order', rid=o.id) }}" style="margin-top:8px">
-      <textarea name="content" rows="2" placeholder="Nhập nhận xét hoặc phản hồi..." required></textarea>
-      <button class="btn btn-primary btn-sm" style="margin-top:6px">Gửi</button>
+    <form method="post" action="{{ url_for('add_comment', rtype='order', rid=o.id) }}"
+          enctype="multipart/form-data" style="margin-top:8px">
+      <textarea name="content" rows="2" placeholder="Nhập nhận xét hoặc phản hồi..."></textarea>
+      <div style="margin-top:6px; display:flex; gap:8px; align-items:center; flex-wrap:wrap">
+        <label style="font-size:13px; color:#555">📎 Đính kèm file (tuỳ chọn):</label>
+        <input type="file" name="attachment" style="font-size:13px">
+        <button class="btn btn-primary btn-sm">Gửi</button>
+      </div>
+      <div style="font-size:12px; color:#888; margin-top:4px">
+        Khi gửi, các bên liên quan (người tạo đơn, lãnh đạo HP89/KBC, nhân viên KBC nhận/giao) sẽ nhận thông báo.
+      </div>
     </form>
   {% endif %}
 </div>
